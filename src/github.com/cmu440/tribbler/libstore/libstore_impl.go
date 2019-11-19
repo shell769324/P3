@@ -2,12 +2,17 @@ package libstore
 
 import (
 	"errors"
+	"fmt"
+	"log"
+	"net/rpc"
 
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
 
 type libstore struct {
 	// TODO: implement this!
+	myPort        string
+	masterStorage *rpc.Client
 }
 
 // NewLibstore creates a new instance of a TribServer's libstore. masterServerHostPort
@@ -35,15 +40,38 @@ type libstore struct {
 // need to create a brand new HTTP handler to serve the requests (the Libstore may
 // simply reuse the TribServer's HTTP handler since the two run in the same process).
 func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libstore, error) {
-	return nil, errors.New("not implemented")
+	libst := new(libstore)
+	libst.myPort = myHostPort
+	print(masterServerHostPort)
+	client, err := rpc.DialHTTP("tcp", fmt.Sprintf("%v", masterServerHostPort))
+	if err != nil {
+		log.Fatal("dialing:", err)
+	}
+	libst.masterStorage = client
+	// replyArgs := &storagerpc.GetReply{}
+
+	// libst.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: "hello", WantLease: false, HostPort: libst.myPort}, replyArgs)
+	return libst, nil
+	// return nil, errors.New("not implemented")
 }
 
 func (ls *libstore) Get(key string) (string, error) {
-	return "", errors.New("not implemented")
+
+	replyArgs := &storagerpc.GetReply{}
+	fmt.Println("Calling get rpc")
+	ls.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
+	fmt.Printf("Got value: %v", replyArgs.Value)
+	return replyArgs.Value, errors.New("Error")
+
 }
 
 func (ls *libstore) Put(key, value string) error {
-	return errors.New("not implemented")
+	replyArgs := &storagerpc.PutReply{}
+	err := ls.masterStorage.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
+	if err != nil {
+		return errors.New("Error in put")
+	}
+	return nil
 }
 
 func (ls *libstore) Delete(key string) error {
@@ -55,11 +83,19 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 }
 
 func (ls *libstore) RemoveFromList(key, removeItem string) error {
-	return errors.New("not implemented")
+	replyArgs := &storagerpc.PutReply{}
+	err := ls.masterStorage.Call("StorageServer.RemoveFromList", &storagerpc.PutArgs{Key: key, Value: removeItem}, replyArgs)
+	return err
+
 }
 
 func (ls *libstore) AppendToList(key, newItem string) error {
-	return errors.New("not implemented")
+	replyArgs := &storagerpc.PutReply{}
+	err := ls.masterStorage.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
+	if err != nil {
+		return errors.New("Error in put")
+	}
+	return nil
 }
 
 func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storagerpc.RevokeLeaseReply) error {

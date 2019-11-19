@@ -2,12 +2,17 @@ package tribserver
 
 import (
 	"errors"
+	"fmt"
+	"net"
+	"net/rpc"
+	"os"
 
 	"github.com/cmu440/tribbler/rpc/tribrpc"
 )
 
 type tribServer struct {
 	// TODO: implement this!
+	listener net.Listener
 }
 
 // NewTribServer creates, starts and returns a new TribServer. masterServerHostPort
@@ -17,6 +22,19 @@ type tribServer struct {
 //
 // For hints on how to properly setup RPC, see the rpc/tribrpc package.
 func NewTribServer(masterServerHostPort, myHostPort string) (TribServer, error) {
+	tribserver := new(tribServer)
+	listener, err := net.Listen("tcp", "localhost"+":"+myHostPort)
+	tribserver.listener = listener
+	if err != nil {
+		fmt.Println("Error listening:", err.Error())
+		os.Exit(1)
+	}
+
+	err = rpc.RegisterName("TribServer", tribrpc.Wrap(tribserver))
+	if err != nil {
+		return nil, err
+	}
+	return tribserver, nil
 	return nil, errors.New("not implemented")
 }
 
