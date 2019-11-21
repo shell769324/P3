@@ -1,7 +1,7 @@
 package storageserver
 
 import (
-	"errors"
+	//"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
@@ -17,8 +18,12 @@ type storageServer struct {
 	isAlive     bool       // DO NOT MODIFY
 	mux         sync.Mutex // DO NOT MODIFY
 	listener    net.Listener
+	masterStorage *rpc.Client
 	listStore   map[string][]string
 	stringStore map[string]string
+	hostPort string
+	servers []storagerpc.Node
+	numNodes int
 	// TODO: implement this!
 }
 
@@ -48,39 +53,72 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	// storageMethods := storagerpc.StorageServer{}
 	ss.stringStore = make(map[string]string)
 	ss.listStore = make(map[string][]string)
+	ss.hostPort = "localhost:"+strconv.Itoa(port)
 
 	if masterServerHostPort == "" {
-		fmt.Printf("Listening on %v", "localhost"+":"+strconv.Itoa(port))
-		err := rpc.RegisterName("StorageServer", storagerpc.Wrap(ss))
-		if err != nil {
-			print("Error")
-		}
-		rpc.HandleHTTP()
-
-		masterListener, err := net.Listen("tcp", "localhost"+":"+strconv.Itoa(port))
-		ss.listener = masterListener
-		if err != nil {
-			fmt.Println("Error listening:", err.Error())
-			os.Exit(1)
-		}
-		err = http.Serve(masterListener, nil)
-		if err != nil {
-			return nil, err
-		}
-
+		ss.servers = make([]storagerpc.Node, 0)
+		ss.servers = append(ss.servers,  storagerpc.Node{HostPort:ss.hostPort})
+		ss.numNodes = numNodes
 	}
+	fmt.Printf("Listening on %v", "localhost"+":"+strconv.Itoa(port))
+	err := rpc.RegisterName("StorageServer", storagerpc.Wrap(ss))
+	rpc.HandleHTTP()
 
+	masterListener, err := net.Listen("tcp", "localhost:"+strconv.Itoa(port))
+	ss.listener = masterListener
+	if err != nil {
+		fmt.Println("Error listening:", err.Error())
+		os.Exit(1)
+	}
+	// TODO: virtual ids
+	// List of other servers for slave
+	if masterServerHostPort != "" {
+		node := storagerpc.Node{HostPort: ss.hostPort}
+		args := &storagerpc.RegisterArgs{ServerInfo: node}
+		reply := &storagerpc.RegisterReply{}
+		for {
+			client, err := rpc.DialHTTP("tcp", masterServerHostPort)
+			if err == nil {
+				ss.masterStorage = client
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
+		for {
+			err := ss.masterStorage.Call("StorageServer.registerServer", args, reply)
+			if err == nil && reply.Status == storagerpc.OK {
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
+	err = http.Serve(masterListener, nil)
+	if err != nil {
+		return nil, err
+	}
 	return ss, nil
-
-	return nil, errors.New("not implemented")
 }
 
 func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *storagerpc.RegisterReply) error {
-	return errors.New("not implemented")
+	//fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
+	ss.servers = append(ss.servers, storagerpc.Node{HostPort:args.ServerInfo.HostPort})
+	reply.Servers = ss.servers
+	if len(ss.servers) == ss.numNodes {
+		reply.Status = storagerpc.OK
+	} else {
+		reply.Status = storagerpc.NotReady
+	}
+	return nil
 }
 
 func (ss *storageServer) getServers(args *storagerpc.GetServersArgs, reply *storagerpc.GetServersReply) error {
-	return errors.New("not implemented")
+	if len(ss.servers) == ss.numNodes {
+		reply.Status = storagerpc.OK
+	} else {
+		reply.Status = storagerpc.NotReady
+	}
+	reply.Servers = ss.servers
+	return nil
 }
 
 func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetReply) error {
@@ -89,7 +127,6 @@ func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetRepl
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.KeyNotFound
-		return errors.New("Key does not exist in map")
 	}
 	return nil
 }
@@ -98,29 +135,29 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 	if _, ok := ss.stringStore[args.Key]; ok {
 		delete(ss.stringStore, args.Key)
 		reply.Status = storagerpc.OK
-		return nil
+	} else {
+		reply.Status = storagerpc.KeyNotFound
 	}
-
-	reply.Status = storagerpc.KeyNotFound
-	return errors.New("Key does not exist in map")
-
+	return nil
 }
 
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
 	if list, ok := ss.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
 		reply.Value = list
-		return nil
+	} else {
+		reply.Status = storagerpc.KeyNotFound
 	}
-	reply.Status = storagerpc.KeyNotFound
-	return errors.New("Key does not exist in list storage")
-
+	return nil
 }
 
 func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
+	if _, ok := ss.stringStore[args.Key]; ok {
+		reply.Status = storagerpc.OK
+	} else {
+		reply.Status = storagerpc.KeyNotFound
+	}
 	ss.stringStore[args.Key] = args.Value
-	reply.Status = storagerpc.OK
-
 	return nil
 }
 
@@ -128,28 +165,22 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 	if list, ok := ss.listStore[args.Key]; ok {
 		for _, val := range list {
 			if val == args.Value {
-
 				reply.Status = storagerpc.ItemExists
-				return errors.New("Key already exists in map")
+				return nil
 			}
 		}
-
-		list = append(list, args.Value)
+		ss.listStore[args.Key] = append(list, args.Value)
 		reply.Status = storagerpc.OK
 		return nil
-
 	}
 
 	ss.listStore[args.Key] = make([]string, 0)
 	ss.listStore[args.Key] = append(ss.listStore[args.Key], args.Value)
-
 	reply.Status = storagerpc.KeyNotFound
 	return nil
-
 }
 
 func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-
 	fmt.Println(ss.listStore[args.Key])
 	if list, ok := ss.listStore[args.Key]; ok {
 		for i, val := range list {
@@ -161,9 +192,9 @@ func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storage
 			}
 		}
 		reply.Status = storagerpc.ItemNotFound
-		return errors.New("Item not found")
+		return nil
 
 	}
 	reply.Status = storagerpc.KeyNotFound
-	return errors.New("Key does not exist in list storage")
+	return nil
 }
