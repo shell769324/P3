@@ -163,7 +163,7 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 		}
 		tribbleList = append(tribbleList, tribble)
 	}
-	fmt.Printf("Len of tribble list is : %v\n", len(tribbleList))
+	// fmt.Printf("Len of tribble list is : %v\n", len(tribbleList))
 	start := 0
 	if len(tribbleList) >= 100 {
 		start = len(tribbleList) - 100
@@ -178,35 +178,88 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 
 func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
 	// Check if user exists first. TODO can do away without this
-	// _, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
-	// if err != nil {
-	// 	reply.Status = tribrpc.NoSuchUser
-	// 	return nil
-	// }
-	// // Get Subscription List
-	// subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
+	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
+	if err != nil {
+		reply.Status = tribrpc.NoSuchUser
+		return nil
+	}
+	// Get Subscription List
+	subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
 
-	// tribList, _ := ts.libStore.GetList(util.FormatTribListKey(args.UserID))
-	// tribbleList := make([]tribrpc.Tribble, 0)
-	// for _, tribID := range tribList {
-	// 	marshalledTribble, _ := ts.libStore.Get(tribID)
-	// 	var tribble tribrpc.Tribble
-	// 	if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
-	// 		panic(err)
-	// 	}
-	// 	tribbleList = append(tribbleList, tribble)
-	// }
-	// fmt.Printf("Len of tribble list is : %v\n", len(tribbleList))
-	// start := 0
-	// if len(tribbleList) >= 100 {
-	// 	start = len(tribbleList) - 100
-	// }
-	// for i := len(tribbleList) - 1; i >= start; i-- {
-	// 	reply.Tribbles = append(reply.Tribbles, tribbleList[i])
-	// }
-	// reply.Status = tribrpc.OK
+	tribbles := make([][]tribrpc.Tribble, len(subList))
 
-	// return nil
+	for i := 0; i < len(subList); i++ {
+		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
+		itemsSize := 100
+		if len(tribList) < 100 {
+			itemsSize = len(tribList)
+		}
+		tribbles[i] = make([]tribrpc.Tribble, itemsSize)
+		tribbleList := make([]tribrpc.Tribble, 0)
+		for j := itemsSize - 1; j >= 0; j-- {
+			marshalledTribble, _ := ts.libStore.Get(tribList[j])
+			var tribble tribrpc.Tribble
+			if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
+				panic(err)
+			}
+			tribbleList = append(tribbleList, tribble)
+			tribbles[i] = append(tribbles[i], tribble)
+			// fmt.Printf("%v\n", tribble)
+		}
+		// tribbles[i] = append(tribbles[i], tribbleList[j])
+
+		// for _, tribID := range tribList {
+		// 	marshalledTribble, _ := ts.libStore.Get(tribID)
+		// 	var tribble tribrpc.Tribble
+		// 	if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
+		// 		panic(err)
+		// 	}
+		// 	tribbleList = append(tribbleList, tribble)
+		// }
+		// start := 0
+		// if len(tribbleList) >= 100 {
+		// 	start = len(tribbleList) - 100
+		// }
+		// for j := len(tribbleList) - 1; j >= 0; j-- {
+		// 	tribbles[i] = append(tribbles[i], tribbleList[j])
+		// }
+	}
+	tribSortIndex := make([]int, len(subList))
+
+	for {
+		itemsRemaining := 0
+		maxIndex := 0
+		maxTimeStamp := time.Now()
+		for i := 0; i < len(tribbles); i++ {
+			fmt.Printf("Index: %v Length %v\n", i, len(tribbles[i]))
+			if tribSortIndex[i] >= len(tribbles[i]) {
+				continue
+			}
+			if i == 0 {
+				maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
+				maxIndex = 0
+			} else {
+				if maxTimeStamp.After(tribbles[i][tribSortIndex[i]].Posted) {
+					maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
+					maxIndex = i
+				}
+			}
+			itemsRemaining += len(tribbles[i]) - 1 - tribSortIndex[i]
+		}
+		if itemsRemaining == 0 {
+			break
+		}
+		fmt.Printf("Max Index: %v Sort Index: %v\n", maxIndex, tribSortIndex[maxIndex])
+		reply.Tribbles = append(reply.Tribbles, tribbles[maxIndex][tribSortIndex[maxIndex]])
+		tribSortIndex[maxIndex]++
+		if len(reply.Tribbles) == 100 {
+			break
+		}
+	}
+
+	reply.Status = tribrpc.OK
+
+	return nil
 
 	return errors.New("not implemented")
 }
