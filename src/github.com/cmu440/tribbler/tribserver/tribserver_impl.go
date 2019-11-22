@@ -185,16 +185,20 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 	}
 	// Get Subscription List
 	subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
-
 	tribbles := make([][]tribrpc.Tribble, len(subList))
 
 	for i := 0; i < len(subList); i++ {
 		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
+		// if err != nil {
+		// 	fmt.Println("triblist for user not found")
+		// }
+		// fmt.Println(tribList)
+
 		itemsSize := 100
 		if len(tribList) < 100 {
 			itemsSize = len(tribList)
 		}
-		tribbles[i] = make([]tribrpc.Tribble, itemsSize)
+		tribbles[i] = make([]tribrpc.Tribble, 0)
 		tribbleList := make([]tribrpc.Tribble, 0)
 		for j := itemsSize - 1; j >= 0; j-- {
 			marshalledTribble, _ := ts.libStore.Get(tribList[j])
@@ -229,27 +233,26 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 	for {
 		itemsRemaining := 0
 		maxIndex := 0
-		maxTimeStamp := time.Now()
+		maxTimeStamp := time.Time{}
 		for i := 0; i < len(tribbles); i++ {
-			fmt.Printf("Index: %v Length %v\n", i, len(tribbles[i]))
+			// fmt.Printf("Index: %v Length %v\n", i, len(tribbles[i]))
 			if tribSortIndex[i] >= len(tribbles[i]) {
 				continue
 			}
-			if i == 0 {
+
+			fmt.Printf("i: %vTimestamp:%v My Timestamp: %v\n", i, maxTimeStamp, tribbles[i][tribSortIndex[i]].Posted)
+			if maxTimeStamp.Before(tribbles[i][tribSortIndex[i]].Posted) {
 				maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
-				maxIndex = 0
-			} else {
-				if maxTimeStamp.After(tribbles[i][tribSortIndex[i]].Posted) {
-					maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
-					maxIndex = i
-				}
+				maxIndex = i
 			}
-			itemsRemaining += len(tribbles[i]) - 1 - tribSortIndex[i]
+
+			itemsRemaining += len(tribbles[i]) - tribSortIndex[i]
 		}
+		fmt.Printf("Items Remaining: %v\n", itemsRemaining)
 		if itemsRemaining == 0 {
 			break
 		}
-		fmt.Printf("Max Index: %v Sort Index: %v\n", maxIndex, tribSortIndex[maxIndex])
+		fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
 		reply.Tribbles = append(reply.Tribbles, tribbles[maxIndex][tribSortIndex[maxIndex]])
 		tribSortIndex[maxIndex]++
 		if len(reply.Tribbles) == 100 {
