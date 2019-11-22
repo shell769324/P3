@@ -2,7 +2,7 @@ package libstore
 
 import (
 	"errors"
-	"fmt"
+
 	//"log"
 	"net/rpc"
 
@@ -57,9 +57,9 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 
 func (ls *libstore) Get(key string) (string, error) {
 	replyArgs := &storagerpc.GetReply{}
-	fmt.Println("Calling get rpc")
+	// fmt.Println("Calling get rpc")
 	err := ls.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
-	fmt.Printf("Got value: %v", replyArgs.Value)
+	// fmt.Printf("Got value: %v", replyArgs.Value)
 	if err == nil && replyArgs.Status != storagerpc.OK {
 		err = errors.New("Get error")
 	}
@@ -70,11 +70,12 @@ func (ls *libstore) Put(key, value string) error {
 	replyArgs := &storagerpc.PutReply{}
 	err := ls.masterStorage.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
 	//fmt.Printf("Status value:%v key not found: % v",replyArgs.Status,replyArgs.Status==storagerpc.KeyNotFound)
-	fmt.Println(err)
+	// fmt.Println(err)
 	if err == nil && replyArgs.Status != storagerpc.OK {
+		// print("************************")
 		err = errors.New("Put error")
 	}
-	fmt.Println(err)
+	// fmt.Println(err)
 	return err
 }
 
@@ -108,7 +109,7 @@ func (ls *libstore) RemoveFromList(key, removeItem string) error {
 func (ls *libstore) AppendToList(key, newItem string) error {
 	replyArgs := &storagerpc.PutReply{}
 	err := ls.masterStorage.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
-	fmt.Println(err)
+	// fmt.Println(err)
 	if err == nil && replyArgs.Status != storagerpc.OK {
 		err = errors.New("AppendToList error")
 	}

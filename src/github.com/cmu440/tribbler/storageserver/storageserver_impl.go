@@ -15,15 +15,15 @@ import (
 )
 
 type storageServer struct {
-	isAlive     bool       // DO NOT MODIFY
-	mux         sync.Mutex // DO NOT MODIFY
-	listener    net.Listener
+	isAlive       bool       // DO NOT MODIFY
+	mux           sync.Mutex // DO NOT MODIFY
+	listener      net.Listener
 	masterStorage *rpc.Client
-	listStore   map[string][]string
-	stringStore map[string]string
-	hostPort string
-	servers []storagerpc.Node
-	numNodes int
+	listStore     map[string][]string
+	stringStore   map[string]string
+	hostPort      string
+	servers       []storagerpc.Node
+	numNodes      int
 	// TODO: implement this!
 }
 
@@ -53,11 +53,11 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	// storageMethods := storagerpc.StorageServer{}
 	ss.stringStore = make(map[string]string)
 	ss.listStore = make(map[string][]string)
-	ss.hostPort = "localhost:"+strconv.Itoa(port)
+	ss.hostPort = "localhost:" + strconv.Itoa(port)
 
 	if masterServerHostPort == "" {
 		ss.servers = make([]storagerpc.Node, 0)
-		ss.servers = append(ss.servers,  storagerpc.Node{HostPort:ss.hostPort})
+		ss.servers = append(ss.servers, storagerpc.Node{HostPort: ss.hostPort})
 		ss.numNodes = numNodes
 	}
 	fmt.Printf("Listening on %v", "localhost"+":"+strconv.Itoa(port))
@@ -101,7 +101,7 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 
 func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *storagerpc.RegisterReply) error {
 	//fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
-	ss.servers = append(ss.servers, storagerpc.Node{HostPort:args.ServerInfo.HostPort})
+	ss.servers = append(ss.servers, storagerpc.Node{HostPort: args.ServerInfo.HostPort})
 	reply.Servers = ss.servers
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
@@ -144,7 +144,21 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
 	if list, ok := ss.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		reply.Value = list
+		// start := 0
+		// if len(list) >= 100 {
+		// 	start = len(list) - 100
+		// }
+		// fmt.Println("Hello can u hear me")
+		// fmt.Println(list)
+		// for i := len(list) - 1; i >= start; i-- {
+		// 	reply.Value = append(reply.Value, list[i])
+		// }
+		if len(list) >= 100 {
+
+			reply.Value = list[len(list)-100 : len(list)]
+		} else {
+			reply.Value = list
+		}
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
@@ -152,6 +166,7 @@ func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.Get
 }
 
 func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
+	print("****************")
 	if _, ok := ss.stringStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
 	} else {
