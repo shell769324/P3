@@ -94,6 +94,9 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	if err == nil && replyArgs.Status != storagerpc.OK {
 		err = errors.New("Get list error")
 	}
+	if len(replyArgs.Value) >= 100 {
+		replyArgs.Value = replyArgs.Value[len(replyArgs.Value) - 100 : len(replyArgs.Value)]
+	}
 	return replyArgs.Value, err
 }
 

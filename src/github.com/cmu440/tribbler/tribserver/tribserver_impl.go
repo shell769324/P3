@@ -2,12 +2,13 @@ package tribserver
 
 import (
 	"encoding/json"
-	"errors"
+	//"errors"
 	"fmt"
 	"net"
 	"net/rpc"
 	"os"
 	"time"
+	"sync"
 
 	"github.com/cmu440/tribbler/libstore"
 	"github.com/cmu440/tribbler/rpc/tribrpc"
@@ -18,6 +19,7 @@ type tribServer struct {
 	// TODO: implement this!
 	listener net.Listener
 	libStore libstore.Libstore
+	mux sync.Mutex
 }
 
 // NewTribServer creates, starts and returns a new TribServer. masterServerHostPort
@@ -45,11 +47,13 @@ func NewTribServer(masterServerHostPort, myHostPort string) (TribServer, error) 
 }
 
 func (ts *tribServer) CreateUser(args *tribrpc.CreateUserArgs, reply *tribrpc.CreateUserReply) error {
-	err := ts.libStore.Put(util.FormatUserKey(args.UserID), "")
+	userKey := util.FormatUserKey(args.UserID)
+	_, err := ts.libStore.Get(userKey)
 	if err == nil {
-		reply.Status = tribrpc.OK
-	} else {
 		reply.Status = tribrpc.Exists
+	} else {
+		reply.Status = tribrpc.OK
+		ts.libStore.Put(userKey, "")
 	}
 	return nil
 }
@@ -120,10 +124,12 @@ func (ts *tribServer) PostTribble(args *tribrpc.PostTribbleArgs, reply *tribrpc.
 		reply.Status = tribrpc.NoSuchUser
 		return nil
 	}
+	ts.mux.Lock()
 	tribble := tribrpc.Tribble{UserID: args.UserID, Contents: args.Contents, Posted: time.Now()}
 	tribbleMar, _ := json.Marshal(tribble)
-	tribKey := util.FormatPostKey(args.UserID, tribble.Posted.Unix())
+	tribKey := util.FormatPostKey(args.UserID, tribble.Posted.UnixNano())
 	ts.libStore.AppendToList(util.FormatTribListKey(args.UserID), tribKey)
+	ts.mux.Unlock()
 	ts.libStore.Put(tribKey, string(tribbleMar))
 	reply.PostKey = tribKey
 	reply.Status = tribrpc.OK
@@ -176,6 +182,20 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 	return nil
 }
 
+// func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
+// 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
+// 	if err != nil {
+// 		reply.Status = tribrpc.NoSuchUser
+// 		return nil
+// 	}
+// 	subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
+// 	tribIDs := make([]string, 0)
+// 	for i := 0; i < len(subList); i++ {
+// 		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
+
+// 	}
+// }
+
 func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
 	// Check if user exists first. TODO can do away without this
 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
@@ -199,37 +219,17 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 			itemsSize = len(tribList)
 		}
 		tribbles[i] = make([]tribrpc.Tribble, 0)
-		tribbleList := make([]tribrpc.Tribble, 0)
 		for j := itemsSize - 1; j >= 0; j-- {
 			marshalledTribble, _ := ts.libStore.Get(tribList[j])
 			var tribble tribrpc.Tribble
 			if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
 				panic(err)
 			}
-			tribbleList = append(tribbleList, tribble)
 			tribbles[i] = append(tribbles[i], tribble)
 			// fmt.Printf("%v\n", tribble)
 		}
-		// tribbles[i] = append(tribbles[i], tribbleList[j])
-
-		// for _, tribID := range tribList {
-		// 	marshalledTribble, _ := ts.libStore.Get(tribID)
-		// 	var tribble tribrpc.Tribble
-		// 	if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
-		// 		panic(err)
-		// 	}
-		// 	tribbleList = append(tribbleList, tribble)
-		// }
-		// start := 0
-		// if len(tribbleList) >= 100 {
-		// 	start = len(tribbleList) - 100
-		// }
-		// for j := len(tribbleList) - 1; j >= 0; j-- {
-		// 	tribbles[i] = append(tribbles[i], tribbleList[j])
-		// }
 	}
 	tribSortIndex := make([]int, len(subList))
-
 	for {
 		itemsRemaining := 0
 		maxIndex := 0
@@ -239,30 +239,25 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 			if tribSortIndex[i] >= len(tribbles[i]) {
 				continue
 			}
-
-			fmt.Printf("i: %vTimestamp:%v My Timestamp: %v\n", i, maxTimeStamp, tribbles[i][tribSortIndex[i]].Posted)
+			//fmt.Printf("i: %vTimestamp:%v My Timestamp: %v\n", i, maxTimeStamp, tribbles[i][tribSortIndex[i]].Posted)
 			if maxTimeStamp.Before(tribbles[i][tribSortIndex[i]].Posted) {
 				maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
 				maxIndex = i
 			}
-
 			itemsRemaining += len(tribbles[i]) - tribSortIndex[i]
 		}
-		fmt.Printf("Items Remaining: %v\n", itemsRemaining)
+		//fmt.Printf("Items Remaining: %v\n", itemsRemaining)
 		if itemsRemaining == 0 {
 			break
 		}
-		fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
+		//fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
 		reply.Tribbles = append(reply.Tribbles, tribbles[maxIndex][tribSortIndex[maxIndex]])
 		tribSortIndex[maxIndex]++
 		if len(reply.Tribbles) == 100 {
 			break
 		}
 	}
-
 	reply.Status = tribrpc.OK
 
 	return nil
-
-	return errors.New("not implemented")
 }

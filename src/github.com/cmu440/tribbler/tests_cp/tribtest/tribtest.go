@@ -159,8 +159,11 @@ func checkTribbles(tribbles, expectedTribbles []tribrpc.Tribble) bool {
 	lastTime := int64(0)
 	for i := len(tribbles) - 1; i >= 0; i-- {
 		if tribbles[i].UserID != expectedTribbles[i].UserID {
-			LOGE.Printf("FAIL: incorrect tribbles %v, expected tribbles %v\n", tribbles, expectedTribbles)
+			fmt.Println(i)
+			fmt.Println(tribbles[i].Contents, expectedTribbles[i].Contents, tribbles[i].Contents == expectedTribbles[i].Contents)
+			LOGE.Printf("FAIL: incorrect tribbles %v, expected tribbles %v\n", tribbles[i], expectedTribbles[i])
 			failCount++
+			os.Exit(1)
 			return true
 		}
 		if tribbles[i].Contents != expectedTribbles[i].Contents {

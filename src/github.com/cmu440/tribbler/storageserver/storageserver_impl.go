@@ -24,6 +24,10 @@ type storageServer struct {
 	hostPort      string
 	servers       []storagerpc.Node
 	numNodes      int
+
+	stringLock sync.Mutex
+	listLock sync.Mutex
+	serverLock sync.Mutex
 	// TODO: implement this!
 }
 
@@ -60,7 +64,7 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 		ss.servers = append(ss.servers, storagerpc.Node{HostPort: ss.hostPort})
 		ss.numNodes = numNodes
 	}
-	fmt.Printf("Listening on %v", "localhost"+":"+strconv.Itoa(port))
+	fmt.Printf("Listening on %v\n", "localhost"+":"+strconv.Itoa(port))
 	err := rpc.RegisterName("StorageServer", storagerpc.Wrap(ss))
 	rpc.HandleHTTP()
 
@@ -101,6 +105,7 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 
 func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *storagerpc.RegisterReply) error {
 	//fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
+	ss.serverLock.Lock()
 	ss.servers = append(ss.servers, storagerpc.Node{HostPort: args.ServerInfo.HostPort})
 	reply.Servers = ss.servers
 	if len(ss.servers) == ss.numNodes {
@@ -108,75 +113,71 @@ func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *st
 	} else {
 		reply.Status = storagerpc.NotReady
 	}
+	ss.serverLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) getServers(args *storagerpc.GetServersArgs, reply *storagerpc.GetServersReply) error {
+	ss.serverLock.Lock()
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.NotReady
 	}
 	reply.Servers = ss.servers
+	ss.serverLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetReply) error {
+	ss.stringLock.Lock()
 	if val, ok := ss.stringStore[args.Key]; ok {
 		reply.Value = val
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
+	ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.DeleteReply) error {
+	ss.stringLock.Lock()
 	if _, ok := ss.stringStore[args.Key]; ok {
 		delete(ss.stringStore, args.Key)
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
+	ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
+	ss.listLock.Lock()
 	if list, ok := ss.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		// start := 0
-		// if len(list) >= 100 {
-		// 	start = len(list) - 100
-		// }
-		// fmt.Println("Hello can u hear me")
-		// fmt.Println(list)
-		// for i := len(list) - 1; i >= start; i-- {
-		// 	reply.Value = append(reply.Value, list[i])
-		// }
-		if len(list) >= 100 {
-
-			reply.Value = list[len(list)-100 : len(list)]
-		} else {
-			reply.Value = list
-		}
+		reply.Value = list
 	} else {
 		reply.Status = storagerpc.KeyNotFound
+		reply.Value = make([]string, 0)
 	}
+	ss.listLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-	print("****************")
-	if _, ok := ss.stringStore[args.Key]; ok {
-		reply.Status = storagerpc.OK
-	} else {
-		reply.Status = storagerpc.KeyNotFound
-	}
+	ss.stringLock.Lock()
 	ss.stringStore[args.Key] = args.Value
+	reply.Status = storagerpc.OK
+	ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
+	ss.listLock.Lock()
+	defer ss.listLock.Unlock()
+	reply.Status = storagerpc.OK
 	if list, ok := ss.listStore[args.Key]; ok {
 		for _, val := range list {
 			if val == args.Value {
@@ -185,23 +186,22 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 			}
 		}
 		ss.listStore[args.Key] = append(list, args.Value)
-		reply.Status = storagerpc.OK
 		return nil
 	}
-
 	ss.listStore[args.Key] = make([]string, 0)
 	ss.listStore[args.Key] = append(ss.listStore[args.Key], args.Value)
-	reply.Status = storagerpc.KeyNotFound
 	return nil
 }
 
 func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-	fmt.Println(ss.listStore[args.Key])
+	ss.listLock.Lock()
+	defer ss.listLock.Unlock()
+	//fmt.Println(ss.listStore[args.Key])
 	if list, ok := ss.listStore[args.Key]; ok {
 		for i, val := range list {
 			if val == args.Value {
 				ss.listStore[args.Key] = append(list[:i], list[i+1:]...)
-				fmt.Printf("List after delete: %v", ss.listStore[args.Key])
+				//fmt.Printf("List after delete: %v", ss.listStore[args.Key])
 				reply.Status = storagerpc.OK
 				return nil
 			}
