@@ -24,6 +24,7 @@ type storageServer struct {
 	hostPort      string
 	servers       []storagerpc.Node
 	numNodes      int
+	virtualIDs 	  []uint32
 
 	stringLock sync.Mutex
 	listLock sync.Mutex
@@ -50,6 +51,7 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	/****************************** DO NOT MODIFY! ******************************/
 	ss := new(storageServer)
 	ss.isAlive = true
+	fmt.Println("virtuals: ", virtualIDs)
 	/****************************************************************************/
 	// TODO: implement this!
 	// Its master
@@ -58,10 +60,11 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	ss.stringStore = make(map[string]string)
 	ss.listStore = make(map[string][]string)
 	ss.hostPort = "localhost:" + strconv.Itoa(port)
+	ss.virtualIDs = virtualIDs
 
 	if masterServerHostPort == "" {
 		ss.servers = make([]storagerpc.Node, 0)
-		ss.servers = append(ss.servers, storagerpc.Node{HostPort: ss.hostPort})
+		ss.servers = append(ss.servers, storagerpc.Node{HostPort: ss.hostPort, VirtualIDs: virtualIDs})
 		ss.numNodes = numNodes
 	}
 	fmt.Printf("Listening on %v\n", "localhost"+":"+strconv.Itoa(port))
@@ -69,15 +72,14 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	rpc.HandleHTTP()
 
 	masterListener, err := net.Listen("tcp", "localhost:"+strconv.Itoa(port))
-	ss.listener = masterListener
 	if err != nil {
 		fmt.Println("Error listening:", err.Error())
 		os.Exit(1)
 	}
-	// TODO: virtual ids
+	// TODO:
 	// List of other servers for slave
 	if masterServerHostPort != "" {
-		node := storagerpc.Node{HostPort: ss.hostPort}
+		node := storagerpc.Node{HostPort: ss.hostPort, VirtualIDs: virtualIDs}
 		args := &storagerpc.RegisterArgs{ServerInfo: node}
 		reply := &storagerpc.RegisterReply{}
 		for {
@@ -89,8 +91,9 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 			time.Sleep(1 * time.Second)
 		}
 		for {
-			err := ss.masterStorage.Call("StorageServer.registerServer", args, reply)
-			if err == nil && reply.Status == storagerpc.OK {
+			err := ss.masterStorage.Call("StorageServer.RegisterServer", args, reply)
+			fmt.Println(err == nil, reply.Status)
+			if err == nil {
 				break
 			}
 			time.Sleep(1 * time.Second)
@@ -104,10 +107,10 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 }
 
 func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *storagerpc.RegisterReply) error {
-	//fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
 	ss.serverLock.Lock()
-	ss.servers = append(ss.servers, storagerpc.Node{HostPort: args.ServerInfo.HostPort})
+	ss.servers = append(ss.servers, args.ServerInfo)
 	reply.Servers = ss.servers
+	fmt.Println("From register, total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
 	} else {
@@ -119,12 +122,17 @@ func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *st
 
 func (ss *storageServer) getServers(args *storagerpc.GetServersArgs, reply *storagerpc.GetServersReply) error {
 	ss.serverLock.Lock()
+	print("Get servers called")
+	fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.NotReady
 	}
+
 	reply.Servers = ss.servers
+	fmt.Println(reply)
+
 	ss.serverLock.Unlock()
 	return nil
 }

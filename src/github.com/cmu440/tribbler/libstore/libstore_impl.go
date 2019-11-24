@@ -4,7 +4,10 @@ import (
 	"errors"
 
 	//"log"
+	"fmt"
 	"net/rpc"
+	"sort"
+	"time"
 
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
@@ -12,7 +15,9 @@ import (
 type libstore struct {
 	// TODO: implement this!
 	myPort        string
-	masterStorage *rpc.Client
+	virtualIDs    []uint32
+	hostPorts		  map[uint32]string
+	conns		  map[string]*rpc.Client
 }
 
 // NewLibstore creates a new instance of a TribServer's libstore. masterServerHostPort
@@ -44,79 +49,158 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 	libst.myPort = myHostPort
 	print(masterServerHostPort)
 	client, err := rpc.DialHTTP("tcp", masterServerHostPort)
+	libst.conns = make(map[string]*rpc.Client)
+	libst.conns[masterServerHostPort] = client
+
 	if err != nil {
 		return nil, err
 	}
-	libst.masterStorage = client
-	// replyArgs := &storagerpc.GetReply{}
+	reply := &storagerpc.GetServersReply{}
+	for i := 0; i < 5; i++ {
+		err := client.Call("StorageServer.GetServers", &storagerpc.GetServersArgs{}, reply)
+		if err == nil && reply.Status == storagerpc.OK {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	libst.hostPorts = make(map[uint32]string)
+	libst.virtualIDs = make([]uint32, 0)
 
-	// libst.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: "hello", WantLease: false, HostPort: libst.myPort}, replyArgs)
+	for _, node := range(reply.Servers) {
+		for _, vID := range(node.VirtualIDs) {
+			libst.hostPorts[vID] = node.HostPort
+		}
+		libst.virtualIDs = append(libst.virtualIDs, node.VirtualIDs...)
+	}
+	sort.Slice(libst.virtualIDs, func(i, j int) bool { return libst.virtualIDs[i] < libst.virtualIDs[j]})
 	return libst, nil
-	// return nil, errors.New("not implemented")
+}
+
+func (ls *libstore) getVirtualID(key string) int {
+	hash := StoreHash(key)
+	fmt.Println("Hash: ", hash)
+	i := 0
+	for i < len(ls.virtualIDs) && hash > ls.virtualIDs[i] {
+		i++
+	}
+	return i % len(ls.virtualIDs)
+}
+
+func (ls *libstore) getClient(id int) (*rpc.Client, int) {
+	hostPort := ls.hostPorts[ls.virtualIDs[id]]
+	var res *rpc.Client
+	for {
+		if client, ok := ls.conns[hostPort]; !ok {
+			client, err := rpc.DialHTTP("tcp", hostPort)
+			if err != nil {
+				id = (id + 1) % len(ls.virtualIDs)
+				continue
+			} else {
+				ls.conns[hostPort] = client
+				res = client
+				break
+			}
+		} else {
+			res = client
+			break
+		}
+	}
+	return res, id
 }
 
 func (ls *libstore) Get(key string) (string, error) {
 	replyArgs := &storagerpc.GetReply{}
 	// fmt.Println("Calling get rpc")
-	err := ls.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
-	// fmt.Printf("Got value: %v", replyArgs.Value)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		err = errors.New("Get error")
+	// err := ls.masterStorage.Call("StorageServer.Get", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
+	// // fmt.Printf("Got value: %v", replyArgs.Value)
+	// if err == nil && replyArgs.Status != storagerpc.OK {
+	// 	err = errors.New("Get error")
+	// }
+	id := ls.getVirtualID(key)
+	for {
+		client, id := ls.getClient(id)
+		err := client.Call("StorageServer.Get", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
+		if err != nil {
+			id = (id + 1) % len(ls.virtualIDs)
+		} else {
+			break
+		}
 	}
-	return replyArgs.Value, err
+	if replyArgs.Status != storagerpc.OK {
+		err := errors.New("Get error")
+		return "", err
+	}
+	return replyArgs.Value, nil
 }
 
 func (ls *libstore) Put(key, value string) error {
 	replyArgs := &storagerpc.PutReply{}
-	err := ls.masterStorage.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
+	// err := ls.masterStorage.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
 	//fmt.Printf("Status value:%v key not found: % v",replyArgs.Status,replyArgs.Status==storagerpc.KeyNotFound)
 	// fmt.Println(err)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		// print("************************")
-		err = errors.New("Put error")
+	// if err == nil && replyArgs.Status != storagerpc.OK {
+	// 	// print("************************")
+	// 	err = errors.New("Put error")
+	// }
+	fmt.Println(ls.virtualIDs)
+	id := ls.getVirtualID(key)
+	for {
+		print("Put the value ")
+		client, id := ls.getClient(id)
+		fmt.Println("id: ", id)
+		err := client.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
+		if err != nil {
+			id = (id + 1) % len(ls.virtualIDs)
+		} else {
+			break
+		}
 	}
-	// fmt.Println(err)
-	return err
+	fmt.Println("put return")
+	return nil
 }
 
 func (ls *libstore) Delete(key string) error {
-	replyArgs := &storagerpc.DeleteReply{}
-	err := ls.masterStorage.Call("StorageServer.Delete", &storagerpc.DeleteArgs{Key: key}, replyArgs)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		err = errors.New("Delete error")
-	}
-	return err
+	return nil
+	//replyArgs := &storagerpc.DeleteReply{}
+	//err := ls.masterStorage.Call("StorageServer.Delete", &storagerpc.DeleteArgs{Key: key}, replyArgs)
+	//if err == nil && replyArgs.Status != storagerpc.OK {
+	//	err = errors.New("Delete error")
+	//}
+	//return err
 }
 
 func (ls *libstore) GetList(key string) ([]string, error) {
-	replyArgs := &storagerpc.GetListReply{}
-	err := ls.masterStorage.Call("StorageServer.GetList", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		err = errors.New("Get list error")
-	}
-	if len(replyArgs.Value) >= 100 {
-		replyArgs.Value = replyArgs.Value[len(replyArgs.Value) - 100 : len(replyArgs.Value)]
-	}
-	return replyArgs.Value, err
+	return make([]string, 0), nil
+	//replyArgs := &storagerpc.GetListReply{}
+	//err := ls.masterStorage.Call("StorageServer.GetList", &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}, replyArgs)
+	//if err == nil && replyArgs.Status != storagerpc.OK {
+	//	err = errors.New("Get list error")
+	//}
+	//if len(replyArgs.Value) >= 100 {
+	//	replyArgs.Value = replyArgs.Value[len(replyArgs.Value) - 100 : len(replyArgs.Value)]
+	//}
+	//return replyArgs.Value, err
 }
 
 func (ls *libstore) RemoveFromList(key, removeItem string) error {
-	replyArgs := &storagerpc.PutReply{}
-	err := ls.masterStorage.Call("StorageServer.RemoveFromList", &storagerpc.PutArgs{Key: key, Value: removeItem}, replyArgs)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		err = errors.New("RemoveFromList error")
-	}
-	return err
+	return nil
+	//replyArgs := &storagerpc.PutReply{}
+	//err := ls.masterStorage.Call("StorageServer.RemoveFromList", &storagerpc.PutArgs{Key: key, Value: removeItem}, replyArgs)
+	//if err == nil && replyArgs.Status != storagerpc.OK {
+	//	err = errors.New("RemoveFromList error")
+	//}
+	//return err
 }
 
 func (ls *libstore) AppendToList(key, newItem string) error {
-	replyArgs := &storagerpc.PutReply{}
-	err := ls.masterStorage.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
-	// fmt.Println(err)
-	if err == nil && replyArgs.Status != storagerpc.OK {
-		err = errors.New("AppendToList error")
-	}
-	return err
+	return nil
+	//replyArgs := &storagerpc.PutReply{}
+	//err := ls.masterStorage.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
+	//// fmt.Println(err)
+	//if err == nil && replyArgs.Status != storagerpc.OK {
+	//	err = errors.New("AppendToList error")
+	//}
+	//return err
 }
 
 func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storagerpc.RevokeLeaseReply) error {

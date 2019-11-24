@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 	"sync"
+	"strconv"
+	"strings"
 
 	"github.com/cmu440/tribbler/libstore"
 	"github.com/cmu440/tribbler/rpc/tribrpc"
@@ -182,20 +184,6 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 	return nil
 }
 
-// func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
-// 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
-// 	if err != nil {
-// 		reply.Status = tribrpc.NoSuchUser
-// 		return nil
-// 	}
-// 	subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
-// 	tribIDs := make([]string, 0)
-// 	for i := 0; i < len(subList); i++ {
-// 		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
-
-// 	}
-// }
-
 func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
 	// Check if user exists first. TODO can do away without this
 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
@@ -205,58 +193,52 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 	}
 	// Get Subscription List
 	subList, _ := ts.libStore.GetList(util.FormatSubListKey(args.UserID))
-	tribbles := make([][]tribrpc.Tribble, len(subList))
-
+	tribbleIDs := make([][]string, len(subList))
 	for i := 0; i < len(subList); i++ {
 		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
-		// if err != nil {
-		// 	fmt.Println("triblist for user not found")
-		// }
-		// fmt.Println(tribList)
-
-		itemsSize := 100
-		if len(tribList) < 100 {
-			itemsSize = len(tribList)
+		for j := 0; j < (len(tribList)/2); j++ {
+			temp := tribList[j]
+			tribList[j] = tribList[len(tribList) - 1 - j]
+			tribList[len(tribList) - 1 - j] = temp
 		}
-		tribbles[i] = make([]tribrpc.Tribble, 0)
-		for j := itemsSize - 1; j >= 0; j-- {
-			marshalledTribble, _ := ts.libStore.Get(tribList[j])
-			var tribble tribrpc.Tribble
-			if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
-				panic(err)
-			}
-			tribbles[i] = append(tribbles[i], tribble)
-			// fmt.Printf("%v\n", tribble)
-		}
+		tribbleIDs[i] = tribList
 	}
 	tribSortIndex := make([]int, len(subList))
 	for {
 		itemsRemaining := 0
 		maxIndex := 0
-		maxTimeStamp := time.Time{}
-		for i := 0; i < len(tribbles); i++ {
+		maxTimeStamp := int64(0)
+		for i := 0; i < len(tribbleIDs); i++ {
 			// fmt.Printf("Index: %v Length %v\n", i, len(tribbles[i]))
-			if tribSortIndex[i] >= len(tribbles[i]) {
+			if tribSortIndex[i] >= len(tribbleIDs[i]) {
 				continue
 			}
 			//fmt.Printf("i: %vTimestamp:%v My Timestamp: %v\n", i, maxTimeStamp, tribbles[i][tribSortIndex[i]].Posted)
-			if maxTimeStamp.Before(tribbles[i][tribSortIndex[i]].Posted) {
-				maxTimeStamp = tribbles[i][tribSortIndex[i]].Posted
+			afterColon := strings.Split(tribbleIDs[i][tribSortIndex[i]], ":")[1]
+			unixTime, _ := strconv.ParseInt(strings.Split(afterColon, "_")[1], 16, 64)
+			if unixTime > maxTimeStamp {
+				maxTimeStamp = unixTime
 				maxIndex = i
 			}
-			itemsRemaining += len(tribbles[i]) - tribSortIndex[i]
+			itemsRemaining += len(tribbleIDs[i]) - tribSortIndex[i]
 		}
 		//fmt.Printf("Items Remaining: %v\n", itemsRemaining)
 		if itemsRemaining == 0 {
 			break
 		}
 		//fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
-		reply.Tribbles = append(reply.Tribbles, tribbles[maxIndex][tribSortIndex[maxIndex]])
+		marshalledTribble, _ := ts.libStore.Get(tribbleIDs[maxIndex][tribSortIndex[maxIndex]])
+ 		var tribble tribrpc.Tribble
+ 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
+ 			panic(err)
+ 		}
+		reply.Tribbles = append(reply.Tribbles, tribble)
 		tribSortIndex[maxIndex]++
 		if len(reply.Tribbles) == 100 {
 			break
 		}
 	}
+
 	reply.Status = tribrpc.OK
 
 	return nil
