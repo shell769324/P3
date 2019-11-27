@@ -26,6 +26,9 @@ type storageServer struct {
 	numNodes      int
 	virtualIDs 	  []uint32
 
+	listLocks 	  map[string]sync.Mutex
+	stringLocks   map[string]sync.Mutex
+
 	stringLock sync.Mutex
 	listLock sync.Mutex
 	serverLock sync.Mutex
@@ -49,9 +52,9 @@ func (ss *storageServer) SetAlive(alive bool) {
 // and should return a non-nil error if the storage server could not be started.
 func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualIDs []uint32) (StorageServer, error) {
 	/****************************** DO NOT MODIFY! ******************************/
+	fmt.Println("our ss is called\n\n")
 	ss := new(storageServer)
 	ss.isAlive = true
-	fmt.Println("virtuals: ", virtualIDs)
 	/****************************************************************************/
 	// TODO: implement this!
 	// Its master
@@ -110,7 +113,6 @@ func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *st
 	ss.serverLock.Lock()
 	ss.servers = append(ss.servers, args.ServerInfo)
 	reply.Servers = ss.servers
-	fmt.Println("From register, total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
 	} else {
@@ -122,17 +124,12 @@ func (ss *storageServer) registerServer(args *storagerpc.RegisterArgs, reply *st
 
 func (ss *storageServer) getServers(args *storagerpc.GetServersArgs, reply *storagerpc.GetServersReply) error {
 	ss.serverLock.Lock()
-	print("Get servers called")
-	fmt.Println("total: ", ss.numNodes, "\ncurrent: ", len(ss.servers))
 	if len(ss.servers) == ss.numNodes {
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.NotReady
 	}
-
 	reply.Servers = ss.servers
-	fmt.Println(reply)
-
 	ss.serverLock.Unlock()
 	return nil
 }
@@ -142,6 +139,8 @@ func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetRepl
 	if val, ok := ss.stringStore[args.Key]; ok {
 		reply.Value = val
 		reply.Status = storagerpc.OK
+		reply.Lease = storagerpc.Lease{Granted: args.WantLease,ValidSeconds: storagerpc.LeaseSeconds}
+
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
@@ -163,8 +162,14 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
 	ss.listLock.Lock()
+	print("Hurray")
 	if list, ok := ss.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
+		reply.Lease= storagerpc.Lease{Granted: args.WantLease,ValidSeconds: storagerpc.LeaseSeconds}
+		
+		if len(list) > 100 {
+			list = list[len(list) - 100:]
+		}
 		reply.Value = list
 	} else {
 		reply.Status = storagerpc.KeyNotFound

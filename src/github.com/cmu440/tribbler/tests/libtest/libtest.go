@@ -1080,14 +1080,14 @@ func testRevokeGetListUpdate() {
 
 func main() {
 	initTests := []testFunc{
-		{"testNonexistentServer", testNonexistentServer},
+		/*{"testNonexistentServer", testNonexistentServer},
 		{"testNoLeases", testNoLeases},
-		{"testAlwaysLeases", testAlwaysLeases},
+		{"testAlwaysLeases", testAlwaysLeases},*/
 	}
-	tests := []testFunc{
+	tests := []testFunc{/*
 		{"testGetError", testGetError},
-		{"testGetErrorStatus", testGetErrorStatus},
-		{"testGetValid", testGetValid},
+		{"testGetErrorStatus", testGetErrorStatus},*/
+		{"testGetValid", testGetValid},/*
 		{"testPutError", testPutError},
 		{"testPutErrorStatus", testPutErrorStatus},
 		{"testPutValid", testPutValid},
@@ -1122,7 +1122,7 @@ func main() {
 		{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
 		{"testRevokeGetListValid", testRevokeGetListValid},
 		{"testRevokeGetListNonexistent", testRevokeGetListNonexistent},
-		{"testRevokeGetListUpdate", testRevokeGetListUpdate},
+		{"testRevokeGetListUpdate", testRevokeGetListUpdate},*/
 	}
 
 	flag.Parse()
