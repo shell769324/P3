@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cmu440/tribbler/rpc/librpc"
+
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
 
@@ -97,7 +99,8 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 	}
 	sort.Slice(libst.virtualIDs, func(i, j int) bool { return libst.virtualIDs[i] > libst.virtualIDs[j] })
 
-	// err := rpc.RegisterName("LeaseCallbacks", storagerpc.Wrap(ss))
+	err = rpc.RegisterName("LeaseCallbacks", librpc.Wrap(libst))
+	print(err)
 	// rpc.HandleHTTP()
 
 	return libst, nil
@@ -135,6 +138,7 @@ func (ls *libstore) Get(key string) (string, error) {
 	defer ls.stringLock.Unlock()
 	fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetReply{}
+	fmt.Println("My hostport is libst: ", ls.myPort)
 	requestArgs := &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}
 	if _, ok := ls.stringStore[key]; !ok {
 		fmt.Println("Creating new cache string")
@@ -290,5 +294,6 @@ func (ls *libstore) AppendToList(key, newItem string) error {
 }
 
 func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storagerpc.RevokeLeaseReply) error {
-	return errors.New("not implemented")
+	print("Revoke Lease Called")
+	return nil
 }
