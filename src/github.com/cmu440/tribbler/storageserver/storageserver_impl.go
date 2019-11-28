@@ -14,6 +14,12 @@ import (
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
 
+type leaserStruct struct {
+	hostPort  string
+	client    *rpc.Client
+	leaseTime time.Time
+}
+
 type storageServer struct {
 	isAlive       bool       // DO NOT MODIFY
 	mux           sync.Mutex // DO NOT MODIFY
@@ -24,13 +30,18 @@ type storageServer struct {
 	hostPort      string
 	servers       []storagerpc.Node
 	numNodes      int
-	virtualIDs 	  []uint32
+	virtualIDs    []uint32
 
-	listLocks 	  map[string]sync.Mutex
-	stringLocks   map[string]sync.Mutex
+	maplistLock   sync.Mutex
+	mapstringLock sync.Mutex
+	listLocks     map[string]sync.Mutex //locks for individual lists
+	stringLocks   map[string]sync.Mutex // locks for individual strings
+
+	listLeaser   map[string][]leaserStruct
+	stringLeaser map[string][]leaserStruct
 
 	stringLock sync.Mutex
-	listLock sync.Mutex
+	listLock   sync.Mutex
 	serverLock sync.Mutex
 	// TODO: implement this!
 }
@@ -64,6 +75,8 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	ss.listStore = make(map[string][]string)
 	ss.hostPort = "localhost:" + strconv.Itoa(port)
 	ss.virtualIDs = virtualIDs
+	ss.listLeaser = make(map[string][]leaserStruct)
+	ss.stringLeaser = make(map[string][]leaserStruct)
 
 	if masterServerHostPort == "" {
 		ss.servers = make([]storagerpc.Node, 0)
@@ -135,61 +148,171 @@ func (ss *storageServer) getServers(args *storagerpc.GetServersArgs, reply *stor
 }
 
 func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetReply) error {
-	ss.stringLock.Lock()
+	// ss.stringLock.Lock()
+	// Get/GetList is where the client for ask for lease for the first time
+	if args.WantLease {
+		ss.mapstringLock.Lock()
+		if _, ok := ss.stringLocks[args.Key]; !ok {
+			var newlock sync.Mutex
+			ss.stringLocks[args.Key] = newlock
+		}
+		keyLock := ss.stringLocks[args.Key]
+		ss.mapstringLock.Unlock()
+		keyLock.Lock()
+		defer keyLock.Unlock()
+
+		if _, ok := ss.stringLeaser[args.Key]; !ok {
+			ss.stringLeaser[args.Key] = make([]leaserStruct, 0)
+		}
+
+	}
+
 	if val, ok := ss.stringStore[args.Key]; ok {
 		reply.Value = val
 		reply.Status = storagerpc.OK
-		reply.Lease = storagerpc.Lease{Granted: args.WantLease,ValidSeconds: storagerpc.LeaseSeconds}
+		if args.WantLease {
+			found := false
+			i := 0
+			for i, _ = range ss.stringLeaser[args.Key] {
+				if ss.stringLeaser[args.Key][i].hostPort == args.HostPort {
+					found = true
+					break
+				}
+			}
+			if !found {
+				//establish connection, cache it
+				newLeaserStruct := leaserStruct{hostPort: args.HostPort}
+				newLeaserStruct.client, _ = rpc.DialHTTP("tcp", args.HostPort)
+				// set the leasetime
+				newLeaserStruct.leaseTime = time.Now()
+				ss.stringLeaser[args.Key] = append(ss.stringLeaser[args.Key], newLeaserStruct)
+			} else {
+				ss.stringLeaser[args.Key][i].leaseTime = time.Now()
+			}
+		}
+		reply.Lease = storagerpc.Lease{Granted: args.WantLease, ValidSeconds: storagerpc.LeaseSeconds}
 
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
-	ss.stringLock.Unlock()
+	// ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.DeleteReply) error {
-	ss.stringLock.Lock()
+	ss.mapstringLock.Lock()
+	if _, ok := ss.stringLocks[args.Key]; !ok {
+		var newlock sync.Mutex
+		ss.stringLocks[args.Key] = newlock
+	}
+	keyLock := ss.stringLocks[args.Key]
+	ss.mapstringLock.Unlock()
+
+	keyLock.Lock()
+	defer keyLock.Unlock()
+
+	// ss.stringLock.Lock()
 	if _, ok := ss.stringStore[args.Key]; ok {
 		delete(ss.stringStore, args.Key)
 		reply.Status = storagerpc.OK
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 	}
-	ss.stringLock.Unlock()
+	// ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
-	ss.listLock.Lock()
+	// ss.listLock.Lock()
 	print("Hurray")
+	if args.WantLease {
+		ss.maplistLock.Lock()
+		if _, ok := ss.listLocks[args.Key]; !ok {
+			var newlock sync.Mutex
+			ss.listLocks[args.Key] = newlock
+		}
+		keyLock := ss.listLocks[args.Key]
+		ss.maplistLock.Unlock()
+		keyLock.Lock()
+		defer keyLock.Unlock()
+
+		if _, ok := ss.listLeaser[args.Key]; !ok {
+			ss.listLeaser[args.Key] = make([]leaserStruct, 0)
+		}
+
+	}
+
 	if list, ok := ss.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		reply.Lease= storagerpc.Lease{Granted: args.WantLease,ValidSeconds: storagerpc.LeaseSeconds}
-		
+		if args.WantLease {
+			found := false
+			i := 0
+			for i, _ = range ss.listLeaser[args.Key] {
+				if ss.listLeaser[args.Key][i].hostPort == args.HostPort {
+					found = true
+					break
+				}
+			}
+			if !found {
+				//establish connection, cache it
+				newLeaserStruct := leaserStruct{hostPort: args.HostPort}
+				newLeaserStruct.client, _ = rpc.DialHTTP("tcp", args.HostPort)
+				// set the leasetime
+				newLeaserStruct.leaseTime = time.Now()
+				ss.listLeaser[args.Key] = append(ss.listLeaser[args.Key], newLeaserStruct)
+			} else {
+				ss.listLeaser[args.Key][i].leaseTime = time.Now()
+			}
+		}
+
+		reply.Lease = storagerpc.Lease{Granted: args.WantLease, ValidSeconds: storagerpc.LeaseSeconds}
+
 		if len(list) > 100 {
-			list = list[len(list) - 100:]
+			list = list[len(list)-100:]
 		}
 		reply.Value = list
 	} else {
 		reply.Status = storagerpc.KeyNotFound
 		reply.Value = make([]string, 0)
 	}
-	ss.listLock.Unlock()
+	// ss.listLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-	ss.stringLock.Lock()
+	ss.mapstringLock.Lock()
+	if _, ok := ss.stringLocks[args.Key]; !ok {
+		var newlock sync.Mutex
+		ss.stringLocks[args.Key] = newlock
+	}
+	keyLock := ss.stringLocks[args.Key]
+	ss.mapstringLock.Unlock()
+
+	keyLock.Lock()
+	defer keyLock.Unlock()
+
+	//Revoke leases
+
+	// ss.stringLock.Lock()
 	ss.stringStore[args.Key] = args.Value
 	reply.Status = storagerpc.OK
-	ss.stringLock.Unlock()
+	// ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-	ss.listLock.Lock()
-	defer ss.listLock.Unlock()
+	ss.maplistLock.Lock()
+	if _, ok := ss.listLocks[args.Key]; !ok {
+		var newlock sync.Mutex
+		ss.listLocks[args.Key] = newlock
+	}
+	keyLock := ss.listLocks[args.Key]
+	ss.maplistLock.Unlock()
+	keyLock.Lock()
+	defer keyLock.Unlock()
+
+	// ss.listLock.Lock()
+	// defer ss.listLock.Unlock()
 	reply.Status = storagerpc.OK
 	if list, ok := ss.listStore[args.Key]; ok {
 		for _, val := range list {
@@ -207,8 +330,18 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 }
 
 func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
-	ss.listLock.Lock()
-	defer ss.listLock.Unlock()
+	ss.maplistLock.Lock()
+	if _, ok := ss.listLocks[args.Key]; !ok {
+		var newlock sync.Mutex
+		ss.listLocks[args.Key] = newlock
+	}
+	keyLock := ss.listLocks[args.Key]
+	ss.maplistLock.Unlock()
+	keyLock.Lock()
+	defer keyLock.Unlock()
+
+	// ss.listLock.Lock()
+	// defer ss.listLock.Unlock()
 	//fmt.Println(ss.listStore[args.Key])
 	if list, ok := ss.listStore[args.Key]; ok {
 		for i, val := range list {
