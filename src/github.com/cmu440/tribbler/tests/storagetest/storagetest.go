@@ -782,6 +782,7 @@ func testDelayedRevokeWithLeaseRequest2() {
 	// function called during revoke of key1
 	f := func() bool {
 		ts := time.Now()
+		defer fmt.Println("f completed")
 		// get key1 and want a lease
 		replyG, err := st.Get(key1, true)
 		if checkErrorStatus(err, replyG.Status, storagerpc.OK) {
@@ -1402,29 +1403,29 @@ func testDelayedRevokeListWithUpdate3() {
 func main() {
 	jtests := []testFunc{{"testInitStorageServers", testInitStorageServers}}
 	btests := []testFunc{
-		{"testPutGetDelete", testPutGetDelete},
-		{"testAppendGetRemoveList", testAppendGetRemoveList},
-		{"testUpdateWithoutLease", testUpdateWithoutLease},
-		{"testUpdateBeforeLeaseExpire", testUpdateBeforeLeaseExpire},
-		{"testUpdateAfterLeaseExpire", testUpdateAfterLeaseExpire},
-		{"testDeleteBeforeLeaseExpire", testDeleteBeforeLeaseExpire},
-		{"testDeleteAfterLeaseExpire", testDeleteAfterLeaseExpire},
-		{"testDeleteWithoutLease", testDeleteWithoutLease},
-		{"testDelayedRevokeWithoutBlocking", testDelayedRevokeWithoutBlocking},
-		{"testDelayedRevokeWithLeaseRequest1", testDelayedRevokeWithLeaseRequest1},
+		// {"testPutGetDelete", testPutGetDelete},
+		// {"testAppendGetRemoveList", testAppendGetRemoveList},
+		// {"testUpdateWithoutLease", testUpdateWithoutLease},
+		// {"testUpdateBeforeLeaseExpire", testUpdateBeforeLeaseExpire},
+		// {"testUpdateAfterLeaseExpire", testUpdateAfterLeaseExpire},
+		// {"testDeleteBeforeLeaseExpire", testDeleteBeforeLeaseExpire},
+		// {"testDeleteAfterLeaseExpire", testDeleteAfterLeaseExpire},
+		// {"testDeleteWithoutLease", testDeleteWithoutLease},
+		// {"testDelayedRevokeWithoutBlocking", testDelayedRevokeWithoutBlocking},
+		// {"testDelayedRevokeWithLeaseRequest1", testDelayedRevokeWithLeaseRequest1},
 		{"testDelayedRevokeWithLeaseRequest2", testDelayedRevokeWithLeaseRequest2},
-		{"testDelayedRevokeWithUpdate1", testDelayedRevokeWithUpdate1},
-		{"testDelayedRevokeWithUpdate2", testDelayedRevokeWithUpdate2},
-		{"testDelayedRevokeWithUpdate3", testDelayedRevokeWithUpdate3},
-		{"testUpdateListWithoutLease", testUpdateListWithoutLease},
-		{"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
-		{"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
-		{"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
-		{"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
-		{"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
-		{"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
-		{"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
-		{"testDelayedRevokeListWithUpdate3", testDelayedRevokeListWithUpdate3},
+		// {"testDelayedRevokeWithUpdate1", testDelayedRevokeWithUpdate1},
+		// {"testDelayedRevokeWithUpdate2", testDelayedRevokeWithUpdate2},
+		// {"testDelayedRevokeWithUpdate3", testDelayedRevokeWithUpdate3},
+		// {"testUpdateListWithoutLease", testUpdateListWithoutLease},
+		// {"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
+		// {"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
+		// {"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
+		// {"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
+		// {"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
+		// {"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
+		// {"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
+		// {"testDelayedRevokeListWithUpdate3", testDelayedRevokeListWithUpdate3},
 	}
 
 	flag.Parse()

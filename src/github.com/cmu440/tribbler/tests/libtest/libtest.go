@@ -684,6 +684,7 @@ func testCacheGetMemoryLeak() {
 			failCount++
 			return
 		}
+		// print("Passed 1 checkpoint")
 		pc.Reset()
 		v, err := ls.Get(key)
 		if checkError(err, false) {
@@ -973,7 +974,7 @@ func testCacheGetListMemoryLeak() {
 	runtime.ReadMemStats(&memstats)
 
 	// Wait for data to expire and someone to cleanup.
-	time.Sleep(20 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	// Run garbage collection and get memory stats.
 	runtime.GC()
@@ -1086,8 +1087,8 @@ func main() {
 	}
 	tests := []testFunc{ /*
 			{"testGetError", testGetError},
-			{"testGetErrorStatus", testGetErrorStatus},*/
-		{"testGetValid", testGetValid}, /*
+			{"testGetErrorStatus", testGetErrorStatus},
+		{"testGetValid", testGetValid}, 
 			{"testPutError", testPutError},
 			{"testPutErrorStatus", testPutErrorStatus},
 			{"testPutValid", testPutValid},
@@ -1109,18 +1110,31 @@ func main() {
 			{"testCacheGetLeaseNotGranted", testCacheGetLeaseNotGranted},
 			{"testCacheGetLeaseNotGranted2", testCacheGetLeaseNotGranted2},
 			{"testCacheGetLeaseTimeout", testCacheGetLeaseTimeout},
-			{"testCacheGetMemoryLeak", testCacheGetMemoryLeak},
+			//{"testCacheGetMemoryLeak", testCacheGetMemoryLeak},
 			{"testRevokeGetValid", testRevokeGetValid},
 			{"testRevokeGetNonexistent", testRevokeGetNonexistent},
 			{"testRevokeGetUpdate", testRevokeGetUpdate},
 			{"testCacheGetListLimit", testCacheGetListLimit},
-			{"testCacheGetListLimit2", testCacheGetListLimit2},
+			{"testCacheGetListLimit2", testCacheGetListLimit2},*/
 			{"testCacheGetListCorrect", testCacheGetListCorrect},
 			{"testCacheGetListLeaseNotGranted", testCacheGetListLeaseNotGranted},
 			{"testCacheGetListLeaseNotGranted2", testCacheGetListLeaseNotGranted2},
 			{"testCacheGetListLeaseTimeout", testCacheGetListLeaseTimeout},
 			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testRevokeGetListValid", testRevokeGetListValid},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+
+			/*{"testRevokeGetListValid", testRevokeGetListValid},
 			{"testRevokeGetListNonexistent", testRevokeGetListNonexistent},
 			{"testRevokeGetListUpdate", testRevokeGetListUpdate},*/
 	}
