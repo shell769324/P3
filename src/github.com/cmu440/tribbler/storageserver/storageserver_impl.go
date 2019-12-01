@@ -300,10 +300,11 @@ func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutRepl
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
+				ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+
 			}()
 			// print(reply.Status)
 			// print(err)
-			ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
 		}
 
 	}
@@ -322,6 +323,10 @@ func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutRepl
 				}
 			case <-timeout:
 				fmt.Println("Didnt receive all revokes, but lease must have expired")
+				for i, _ := range ss.stringLeaser[args.Key] {
+					ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+				}
+
 				breakLoop = true
 			}
 		}
@@ -385,8 +390,9 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
+				ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+
 			}()
-			ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
 		}
 
 	}
@@ -404,6 +410,10 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 					breakLoop = true
 				}
 			case <-timeout:
+				for i, _ := range ss.stringLeaser[args.Key] {
+					ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+				}
+
 				fmt.Println("Didnt receive all revokes, but lease must have expired")
 				breakLoop = true
 			}
@@ -532,12 +542,14 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 	ss.revokeLock.Lock()
 	ss.ongoingRevoke[args.Key] = true
 	ss.revokeLock.Unlock()
-	leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
 	leaseHosts := ss.listLeaser[args.Key]
 	doneChan := make(chan bool)
+	leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
 
 	for i, _ := range leaseHosts {
+		fmt.Println("Iter: ", i)
 		//Check if lease is valid and call revoke list
+		fmt.Println(ss.listLeaser[args.Key][i].leaseTime, timeNow)
 		if timeNow.After(ss.listLeaser[args.Key][i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)) {
 			// lease is invalid, do nothing with that server
 			go func() {
@@ -552,14 +564,14 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
+				ss.listLeaser[args.Key][i].leaseTime = time.Time{}
 			}()
-			ss.listLeaser[args.Key][i].leaseTime = time.Time{}
 		}
 
 	}
 
 	replies := 0
-	timeout := time.After(time.Duration(leaseValidTime) * time.Second)
+	timeout := time.After(time.Duration(leaseValidTime)*time.Second + 1)
 	breakLoop := false
 	if len(leaseHosts) > 0 {
 		for {
@@ -574,6 +586,9 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 				}
 			case <-timeout:
 				breakLoop = true
+				for i, _ := range leaseHosts {
+					ss.listLeaser[args.Key][i].leaseTime = time.Time{}
+				}
 			}
 		}
 	}
@@ -643,8 +658,9 @@ func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storage
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				// fmt.Println("RPC CALL error : ", err)
 				doneChan <- true
+				ss.listLeaser[args.Key][i].leaseTime = time.Time{}
+
 			}()
-			ss.listLeaser[args.Key][i].leaseTime = time.Time{}
 		}
 
 	}
@@ -665,6 +681,10 @@ func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storage
 				}
 			case <-timeout:
 				breakLoop = true
+				for i, _ := range leaseHosts {
+					ss.listLeaser[args.Key][i].leaseTime = time.Time{}
+				}
+
 			}
 		}
 	}

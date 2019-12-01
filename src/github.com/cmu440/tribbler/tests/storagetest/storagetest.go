@@ -1425,7 +1425,7 @@ func main() {
 		// {"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
 		// {"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
 		// {"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
-		{"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
+		// {"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
 		// {"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
 		{"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
 		{"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
