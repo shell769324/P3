@@ -641,6 +641,7 @@ func delayedRevoke(key string, f func() bool) bool {
 	go func() {
 		// put key1 again to trigger a revoke
 		replyP, err = st.Put(key, "new-value")
+		fmt.Println("Put returned")
 		putCh <- true
 	}()
 	// ensure Put has gotten to server
@@ -1006,11 +1007,13 @@ func testUpdateListBeforeLeaseExpire() {
 	if checkErrorStatus(err, replyP.Status, storagerpc.OK) {
 		return
 	}
+	fmt.Println("Reached here: 1")
+
 	replyP, err = st.RemoveFromList(key, "value1")
 	if checkErrorStatus(err, replyP.Status, storagerpc.OK) {
 		return
 	}
-
+	fmt.Println("Reached here")
 	// read it back
 	replyL, err := st.GetList(key, false)
 	if checkErrorStatus(err, replyL.Status, storagerpc.OK) {
@@ -1196,7 +1199,8 @@ func testDelayedRevokeListWithLeaseRequest1() {
 		if isTimeOK(time.Since(ts)) {
 			// in this case, server should reply old value and refuse lease
 			if replyL.Lease.Granted || len(replyL.Value) != 1 || replyL.Value[0] != "old-value" {
-				LOGE.Println("FAIL: server should return old value and not grant lease")
+
+				LOGE.Println("FAIL: server should return old value and not grant lease: ", replyL.Lease.Granted, replyL.Value, replyL.Value[0])
 				failCount++
 				return true
 			}
@@ -1413,7 +1417,7 @@ func main() {
 		// {"testDeleteWithoutLease", testDeleteWithoutLease},
 		// {"testDelayedRevokeWithoutBlocking", testDelayedRevokeWithoutBlocking},
 		// {"testDelayedRevokeWithLeaseRequest1", testDelayedRevokeWithLeaseRequest1},
-		{"testDelayedRevokeWithLeaseRequest2", testDelayedRevokeWithLeaseRequest2},
+		// {"testDelayedRevokeWithLeaseRequest2", testDelayedRevokeWithLeaseRequest2},
 		// {"testDelayedRevokeWithUpdate1", testDelayedRevokeWithUpdate1},
 		// {"testDelayedRevokeWithUpdate2", testDelayedRevokeWithUpdate2},
 		// {"testDelayedRevokeWithUpdate3", testDelayedRevokeWithUpdate3},
@@ -1421,11 +1425,11 @@ func main() {
 		// {"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
 		// {"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
 		// {"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
-		// {"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
+		{"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
 		// {"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
-		// {"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
-		// {"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
-		// {"testDelayedRevokeListWithUpdate3", testDelayedRevokeListWithUpdate3},
+		{"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
+		{"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
+		{"testDelayedRevokeListWithUpdate3", testDelayedRevokeListWithUpdate3},
 	}
 
 	flag.Parse()
