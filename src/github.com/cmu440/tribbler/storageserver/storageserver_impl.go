@@ -20,6 +20,12 @@ type leaserStruct struct {
 	leaseTime time.Time
 }
 
+type stringInfo struct {
+	value string
+	isRevoking bool
+	leasers []leaserStruct
+}
+
 type storageServer struct {
 	isAlive       bool       // DO NOT MODIFY
 	mux           sync.Mutex // DO NOT MODIFY
@@ -32,16 +38,19 @@ type storageServer struct {
 	numNodes      int
 	virtualIDs    []uint32
 
-	maplistLock   sync.Mutex
-	mapstringLock sync.Mutex
-	listLocks     map[string]sync.Mutex //locks for individual lists
-	stringLocks   map[string]sync.Mutex // locks for individual strings
+	// maplistLock   sync.Mutex
+	// mapstringLock sync.Mutex
+	// listLocks     map[string]sync.Mutex //locks for individual lists
+	// stringLocks   map[string]sync.Mutex // locks for individual strings
 
-	listLeaser   map[string][]leaserStruct
-	stringLeaser map[string][]leaserStruct
+	// listLeaser   map[string][]leaserStruct
+	// stringLeaser map[string][]leaserStruct
 
-	ongoingRevoke map[string]bool
-	revokeLock    sync.Mutex
+	// ongoingRevoke map[string]bool
+	// revokeLock    sync.Mutex
+
+	stringMap map[string]*stringInfo
+	stringMapLock sync.Mutex
 
 	// stringLock sync.Mutex
 	// listLock   sync.Mutex
@@ -78,16 +87,17 @@ func NewStorageServer(masterServerHostPort string, numNodes, port int, virtualID
 	// Its master
 	// storageS := storageServer{}
 	// storageMethods := storagerpc.StorageServer{}
-	ss.stringStore = make(map[string]string)
-	ss.listStore = make(map[string][]string)
+	// ss.stringStore = make(map[string]string)
+	// ss.listStore = make(map[string][]string)
 	ss.hostPort = "localhost:" + strconv.Itoa(port)
+	ss.stringMap = make(map[string]*stringInfo)
 	ss.virtualIDs = virtualIDs
-	ss.listLeaser = make(map[string][]leaserStruct)
-	ss.stringLeaser = make(map[string][]leaserStruct)
-	ss.listLocks = make(map[string]sync.Mutex)
-	ss.stringLocks = make(map[string]sync.Mutex)
+	// ss.listLeaser = make(map[string][]leaserStruct)
+	// ss.stringLeaser = make(map[string][]leaserStruct)
+	// ss.listLocks = make(map[string]sync.Mutex)
+	// ss.stringLocks = make(map[string]sync.Mutex)
 	ss.libClients = make(map[string]*rpc.Client)
-	ss.ongoingRevoke = make(map[string]bool)
+	// ss.ongoingRevoke = make(map[string]bool)
 
 	if masterServerHostPort == "" {
 		ss.servers = make([]storagerpc.Node, 0)
@@ -161,79 +171,62 @@ func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetRepl
 	//fmt.Println("Get started", args)
 	//defer fmt.Println("Get done")
 	// ss.revokeLock.Lock()
-	if ss.ongoingRevoke[args.Key] {
-		fmt.Println("Ongoing revoke. Not getting lock")
+	ss.stringMapLock.Lock()
+	defer ss.stringMapLock.Unlock()
+	if _, ok := ss.stringMap[args.Key]; !ok {
+		reply.Status = storagerpc.KeyNotFound
+		return nil
+	}
+	if ss.stringMap[args.Key].isRevoking {
 		args.WantLease = false
 	}
+	// if ss.ongoingRevoke[args.Key] {
+	// 	fmt.Println("Ongoing revoke. Not getting lock")
+	// 	args.WantLease = false
+	// }
+	//	ss.revokeLock.Unlock()
 	// ss.revokeLock.Unlock()
-	ss.mapstringLock.Lock()
-	if _, ok := ss.stringLocks[args.Key]; !ok {
-		var newlock sync.Mutex
-		ss.stringLocks[args.Key] = newlock
-	}
-	keyLock := ss.stringLocks[args.Key]
-	ss.mapstringLock.Unlock()
-	keyLock.Lock()
-	defer keyLock.Unlock()
 
+	reply.Value = ss.stringMap[args.Key].value
+	reply.Status = storagerpc.OK
 	if args.WantLease {
-		if _, ok := ss.stringLeaser[args.Key]; !ok {
-			ss.stringLeaser[args.Key] = make([]leaserStruct, 0)
+		found := false
+		i := 0
+		// Connect to libstore and cache it
+		ss.libClientLock.Lock()
+		if _, ok := ss.libClients[args.HostPort]; !ok {
+			fmt.Println("Connecting to libstore and caching it")
+			client, err := rpc.DialHTTP("tcp", args.HostPort)
+			ss.libClients[args.HostPort] = client
+			if err != nil {
+				fmt.Println("Connecting to libstore failed")
+			}
 		}
-	}
-
-	if val, ok := ss.stringStore[args.Key]; ok {
-		reply.Value = val
-		reply.Status = storagerpc.OK
-		if args.WantLease {
-			found := false
-			i := 0
-			// Connect to libstore and cache it
-			ss.libClientLock.Lock()
-			if _, ok := ss.libClients[args.HostPort]; !ok {
-				fmt.Println("Connecting to libstore and caching it")
-
-				client, err := rpc.DialHTTP("tcp", args.HostPort)
-				ss.libClients[args.HostPort] = client
-				if err != nil {
-					fmt.Println("Connecting to libstore failed")
-				}
+		// libClientHandle := ss.libClients[args.HostPort]
+		ss.libClientLock.Unlock()
+		for i, v := range ss.stringMap[args.Key].leasers {
+			if v.hostPort == args.HostPort {
+				found = true
+				break
 			}
-			// libClientHandle := ss.libClients[args.HostPort]
-			ss.libClientLock.Unlock()
-
-			for i, _ = range ss.stringLeaser[args.Key] {
-				if ss.stringLeaser[args.Key][i].hostPort == args.HostPort {
-					found = true
-					break
-				}
-			}
-			if !found {
-				//establish connection, cache it
-				newLeaserStruct := leaserStruct{hostPort: args.HostPort, leaseTime: time.Now()}
-				// newLeaserStruct.client, _ = rpc.DialHTTP("tcp", args.HostPort)
-				// fmt.Println("Hostport: ", args.HostPort)
-				// // set the leasetime
-				ss.stringLeaser[args.Key] = append(ss.stringLeaser[args.Key], newLeaserStruct)
+		}
+		if !found {
+			//establish connection, cache it
+			newLeaserStruct := leaserStruct{hostPort: args.HostPort, leaseTime: time.Now()}
+			ss.stringMap[args.Key].leasers = append(ss.stringMap[args.Key].leasers, newLeaserStruct)
+		} else {
+			timeNow := time.Now()
+			leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
+			if timeNow.Before(ss.stringMap[args.Key].leasers[i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)) {
+				//lease is valid, dont grant lease CHECK
+				fmt.Println("Old lease is still valid")
+				args.WantLease = false
 			} else {
-				timeNow := time.Now()
-				leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
-				if timeNow.Before(ss.stringLeaser[args.Key][i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)) {
-					//lease is valid, dont grant lease
-					fmt.Println("Old lease is still valid")
-
-					args.WantLease = false
-				} else {
-					ss.stringLeaser[args.Key][i].leaseTime = time.Now()
-				}
+				ss.stringMap[args.Key].leasers[i].leaseTime = time.Now()
 			}
-
 		}
-
-		reply.Lease = storagerpc.Lease{Granted: args.WantLease, ValidSeconds: storagerpc.LeaseSeconds}
-	} else {
-		reply.Status = storagerpc.KeyNotFound
 	}
+	reply.Lease = storagerpc.Lease{Granted: args.WantLease, ValidSeconds: storagerpc.LeaseSeconds}
 	// ss.stringLock.Unlock()
 	//fmt.Println(reply)
 
@@ -242,39 +235,33 @@ func (ss *storageServer) get(args *storagerpc.GetArgs, reply *storagerpc.GetRepl
 func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutReply) error {
 	//fmt.Println("put started:", args)
 	//defer fmt.Println("put completed")
-	ss.mapstringLock.Lock()
-	if _, ok := ss.stringLocks[args.Key]; !ok {
-		var newlock sync.Mutex
-		ss.stringLocks[args.Key] = newlock
-	}
-	keyLock := ss.stringLocks[args.Key]
-	ss.mapstringLock.Unlock()
+	reply.Status = storagerpc.OK
 
-	keyLock.Lock()
-	defer keyLock.Unlock()
+	ss.stringMapLock.Lock()
+	if _, ok := ss.stringMap[args.Key]; !ok {
+		ss.stringMap[args.Key]=&stringInfo{value: args.Value,isRevoking: false,leasers:make([]leaserStruct,0)}
+		ss.stringMapLock.Unlock()
+		return nil
+	}
+
+	leasers := ss.stringMap[args.Key].leasers
+	ss.stringMap[args.Key].isRevoking=true
+	ss.stringMapLock.Unlock()
 
 	//Revoke leases
-	if _, ok := ss.stringLeaser[args.Key]; !ok {
-		ss.stringLeaser[args.Key] = make([]leaserStruct, 0)
-	}
-
 	timeNow := time.Now()
-	ss.revokeLock.Lock()
-	ss.ongoingRevoke[args.Key] = true
-	ss.revokeLock.Unlock()
 
-	leaseHosts := ss.stringLeaser[args.Key]
 	doneChan := make(chan bool)
 	leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
 	timeout := time.After(time.Duration(leaseValidTime) * time.Second)
 
-	for i, _ := range leaseHosts {
+	for i, leaser := range leasers {
 		fmt.Println("Iter:", i)
 		//Check if lease is valid and call revoke list
-		fmt.Println("Lease valid time:", leaseValidTime)
-		fmt.Println("Timebefore: ", ss.stringLeaser[args.Key][i].leaseTime)
+		// fmt.Println("Lease valid time:", leaseValidTime)
+		// fmt.Println("Timebefore: ", ss.stringLeaser[args.Key][i].leaseTime)
 
-		timeCheck := ss.stringLeaser[args.Key][i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)
+		timeCheck := leasers[i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)
 		fmt.Println("Timecheck: ", timeCheck)
 		fmt.Println("Timenow: ", timeNow)
 
@@ -288,22 +275,21 @@ func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutRepl
 		} else {
 			fmt.Println("Calling revoke lease")
 			reply := &storagerpc.RevokeLeaseReply{}
-			// ss.libClientLock.Lock()
-			libClientHandle := ss.libClients[ss.stringLeaser[args.Key][i].hostPort]
-			// ss.libClientLock.Unlock()
+			ss.libClientLock.Lock()
+			libClientHandle := ss.libClients[leasers[i].hostPort]
+			ss.libClientLock.Unlock()
 			fmt.Println("Calling the client hangle:", libClientHandle)
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
-				ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
-
+				leasers[i].leaseTime = time.Time{}
 			}()
 			// print(reply.Status)
 			// print(err)
 		}
 
 	}
-	if len(leaseHosts) > 0 {
+	if len(leasers) > 0 {
 		replies := 0
 		breakLoop := false
 		for {
@@ -313,13 +299,13 @@ func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutRepl
 			select {
 			case <-doneChan:
 				replies += 1
-				if replies == len(leaseHosts) {
+				if replies == len(leasers) {
 					breakLoop = true
 				}
 			case <-timeout:
 				fmt.Println("Didnt receive all revokes, but lease must have expired")
-				for i, _ := range ss.stringLeaser[args.Key] {
-					ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+				for i, _ := range ss.stringMap[args.Key].leasers {
+					leasers[i].leaseTime = time.Time{}
 				}
 
 				breakLoop = true
@@ -327,70 +313,75 @@ func (ss *storageServer) put(args *storagerpc.PutArgs, reply *storagerpc.PutRepl
 		}
 	}
 
-	ss.revokeLock.Lock()
-	ss.ongoingRevoke[args.Key] = false
-	ss.revokeLock.Unlock()
+	ss.stringMapLock.Lock()
+	ss.stringMap[args.Key].isRevoking=false
+	ss.stringMap[args.Key].leasers=leasers
+	ss.stringMap[args.Key].value = args.Value
+	ss.stringMapLock.Unlock()
+
 
 	// ss.stringLock.Lock()
-	ss.stringStore[args.Key] = args.Value
-	reply.Status = storagerpc.OK
+	// ss.stringStore[args.Key] = args.Value
 	// ss.stringLock.Unlock()
 	return nil
 }
 func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.DeleteReply) error {
-	ss.mapstringLock.Lock()
-	if _, ok := ss.stringLocks[args.Key]; !ok {
-		var newlock sync.Mutex
-		ss.stringLocks[args.Key] = newlock
-	}
-	keyLock := ss.stringLocks[args.Key]
-	ss.mapstringLock.Unlock()
 
-	keyLock.Lock()
-	defer keyLock.Unlock()
+	reply.Status = storagerpc.OK
+
+	ss.stringMapLock.Lock()
+	if _, ok := ss.stringMap[args.Key]; !ok {
+		reply.Status = storagerpc.KeyNotFound
+		ss.stringMapLock.Unlock()
+		return nil
+	}
+
+	leasers := ss.stringMap[args.Key].leasers
+	ss.stringMap[args.Key].isRevoking=true
+	ss.stringMapLock.Unlock()
 
 	//Revoke leases
-	if _, ok := ss.stringLeaser[args.Key]; !ok {
-		ss.stringLeaser[args.Key] = make([]leaserStruct, 0)
-	}
-
 	timeNow := time.Now()
-	ss.revokeLock.Lock()
-	ss.ongoingRevoke[args.Key] = true
-	ss.revokeLock.Unlock()
 
-	leaseHosts := ss.stringLeaser[args.Key]
 	doneChan := make(chan bool)
 	leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
 	timeout := time.After(time.Duration(leaseValidTime) * time.Second)
 
-	for i, _ := range ss.stringLeaser[args.Key] {
-
+	for i, leaser := range leasers {
+		fmt.Println("Iter:", i)
 		//Check if lease is valid and call revoke list
-		// leaseValidTime := storagerpc.LeaseSeconds + storagerpc.LeaseGuardSeconds
-		if timeNow.After(ss.stringLeaser[args.Key][i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)) {
+		// fmt.Println("Lease valid time:", leaseValidTime)
+		// fmt.Println("Timebefore: ", ss.stringLeaser[args.Key][i].leaseTime)
+
+		timeCheck := leasers[i].leaseTime.Add(time.Duration(leaseValidTime) * time.Second)
+		fmt.Println("Timecheck: ", timeCheck)
+		fmt.Println("Timenow: ", timeNow)
+
+		if timeNow.After(timeCheck) {
 			// lease is invalid, do nothing with that server
+			fmt.Println("Lease is invalid, continuing pro")
 			go func() {
 				doneChan <- true
 			}()
-
+			continue
 		} else {
-			//print("Calling revoke lease")
+			fmt.Println("Calling revoke lease")
 			reply := &storagerpc.RevokeLeaseReply{}
-			// ss.libClientLock.Lock()
-			libClientHandle := ss.libClients[ss.stringLeaser[args.Key][i].hostPort]
-			// ss.libClientLock.Unlock()
-
+			ss.libClientLock.Lock()
+			libClientHandle := ss.libClients[leasers[i].hostPort]
+			ss.libClientLock.Unlock()
+			fmt.Println("Calling the client hangle:", libClientHandle)
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
-				ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
-
+				leasers[i].leaseTime = time.Time{}
 			}()
+			// print(reply.Status)
+			// print(err)
 		}
 
 	}
-	if len(leaseHosts) > 0 {
+	if len(leasers) > 0 {
 		replies := 0
 		breakLoop := false
 		for {
@@ -400,41 +391,39 @@ func (ss *storageServer) delete(args *storagerpc.DeleteArgs, reply *storagerpc.D
 			select {
 			case <-doneChan:
 				replies += 1
-				if replies == len(leaseHosts) {
+				if replies == len(leasers) {
 					breakLoop = true
 				}
 			case <-timeout:
-				for i, _ := range ss.stringLeaser[args.Key] {
-					ss.stringLeaser[args.Key][i].leaseTime = time.Time{}
+				fmt.Println("Didnt receive all revokes, but lease must have expired")
+				for i, _ := range ss.stringMap[args.Key].leasers {
+					leasers[i].leaseTime = time.Time{}
 				}
 
-				fmt.Println("Didnt receive all revokes, but lease must have expired")
 				breakLoop = true
 			}
 		}
 	}
-	ss.revokeLock.Lock()
-	ss.ongoingRevoke[args.Key] = false
-	ss.revokeLock.Unlock()
+
+	ss.stringMapLock.Lock()
+	delete(ss.stringMap,args.Key)
+	ss.stringMapLock.Unlock()
+
 
 	// ss.stringLock.Lock()
-	if _, ok := ss.stringStore[args.Key]; ok {
-		delete(ss.stringStore, args.Key)
-		reply.Status = storagerpc.OK
-	} else {
-		reply.Status = storagerpc.KeyNotFound
-	}
+	// ss.stringStore[args.Key] = args.Value
 	// ss.stringLock.Unlock()
 	return nil
 }
 
 func (ss *storageServer) getList(args *storagerpc.GetArgs, reply *storagerpc.GetListReply) error {
 	// ss.listLock.Lock()
-
+	ss.revokeLock.Lock()
 	if ss.ongoingRevoke[args.Key] {
 		fmt.Println("Ongoing revoke. Not getting lock")
 		args.WantLease = false
 	}
+	ss.revokeLock.Unlock()
 	if args.WantLease {
 		ss.maplistLock.Lock()
 		if _, ok := ss.listLocks[args.Key]; !ok {
@@ -556,6 +545,8 @@ func (ss *storageServer) appendToList(args *storagerpc.PutArgs, reply *storagerp
 			go func() {
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				doneChan <- true
+				keyLock.Lock()
+				defer keyLock.Unlock()
 				ss.listLeaser[args.Key][i].leaseTime = time.Time{}
 			}()
 		}
@@ -650,6 +641,8 @@ func (ss *storageServer) removeFromList(args *storagerpc.PutArgs, reply *storage
 				libClientHandle.Call("LeaseCallbacks.RevokeLease", &storagerpc.RevokeLeaseArgs{Key: args.Key}, reply)
 				// fmt.Println("RPC CALL error : ", err)
 				doneChan <- true
+				keyLock.Lock()
+				defer keyLock.Unlock()
 				ss.listLeaser[args.Key][i].leaseTime = time.Time{}
 
 			}()

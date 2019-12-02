@@ -191,7 +191,10 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 	tribList, _ := ts.libStore.GetList(util.FormatTribListKey(args.UserID))
 	tribList = recentFirst(tribList)
 	for _, tribID := range tribList {
-		marshalledTribble, _ := ts.libStore.Get(tribID)
+		marshalledTribble, getErr := ts.libStore.Get(tribID)
+		if getErr != nil {
+			continue
+		}
 		var tribble tribrpc.Tribble
 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
 			panic(err)
@@ -240,7 +243,11 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 			break
 		}
 		//fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
-		marshalledTribble, _ := ts.libStore.Get(tribbleIDs[maxIndex][tribSortIndex[maxIndex]])
+		marshalledTribble, getError := ts.libStore.Get(tribbleIDs[maxIndex][tribSortIndex[maxIndex]])
+		if getError != nil {
+			tribSortIndex[maxIndex]++
+			continue
+		}
  		var tribble tribrpc.Tribble
  		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
  			panic(err)

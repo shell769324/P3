@@ -15,6 +15,38 @@ import (
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
 
+
+type stringBox struct{
+	key string
+	value string
+	retValue chan string
+}
+
+type safeStringMap struct{
+	stringMap map[string]string
+	getChan chan stringBox
+	putChan chan stringBox
+	deleteChan chan stringBox
+
+}
+
+type listBox struct{
+	key string
+	value chan []string
+}
+
+
+type safeListMap struct{
+	listMap map[string][]string
+	getChan chan listBox
+	appendChan chan listBox
+	removeChan chan listBox
+}
+
+
+
+
+
 type cacheString struct {
 	value        string
 	leaseTime    time.Time
@@ -36,6 +68,12 @@ type libstore struct {
 	hostPorts  map[uint32]string
 	conns      map[string]*rpc.Client
 
+	// Concurrent safe maps
+	listMap safeListMap
+	stringMap safeStringMap
+
+
+
 	listStore   map[string]*cacheList
 	stringStore map[string]*cacheString
 	maplistLock   sync.Mutex
@@ -44,6 +82,70 @@ type libstore struct {
 	stringLocks   map[string]sync.Mutex // locks for individual strings
 
 }
+
+
+// func (ls *libstore) handleStringMap()  {
+// 	for {
+// 		select {
+// 			case box := <- getChan:
+// 				box.retValue <- ls.stringMap.stringMap[box.key]
+// 			case box := <- putChan:
+// 				ls.stringMap.stringMap[box.key] = box.value
+// 				box.retValue <- ""
+// 			case box := <- deleteChan:
+// 				delete(ls.stringMap.stringMap, box.key)
+// 				box.retValue <- ""
+// 		}
+// 	}
+// }
+
+// func (ls *libstore) handleListMap()  {
+// 	for {
+// 		select {
+// 			case box := <- getChan:
+// 				box.retValue <- ls.listMap.listMap[box.key]
+// 			case box := <- appendChan:
+// 				if _, ok := ls.listMap.listMap[box.key], !ok {
+// 					ls.listMap.listMap[box.key]
+// 				}
+// 				ls.listMap.listMap[box.key]box.value
+// 				box.retValue <- make([]string, 0)
+// 			case box := <- removeChan:
+// 				delete(ls.listMap.listMap, box.key)
+// 				box.retValue <- make([]string, 0)
+// 		}
+// 	}
+// }
+
+// func (ls *libstore) stringMapLookUp(key string) string {
+// 	box := stringBox{key : key, retValue : make(chan string)}
+// 	ls.stringMap.getChan <- box
+// 	val := <- retValue
+// 	return val
+// }
+
+// func (ls *libstore) stringMapPut(key, val string) {
+// 	box := stringBox{key : key, value : val, retValue : make(chan string)}
+// 	ls.stringMap.putChan <- box
+// 	<- retValue
+// }
+
+// func (ls *libstore) stringMapDelete(key, val string) {
+// 	box := stringBox{key : key, retValue : make(chan string)}
+// 	ls.stringMap.deleteChan <- box
+// 	<- retValue
+// }
+
+
+
+// func (ls *libstore) handleListMap()  {
+// }
+
+
+
+
+
+
 
 // NewLibstore creates a new instance of a TribServer's libstore. masterServerHostPort
 // is the master storage server's host:port. myHostPort is this Libstore's host:port
@@ -81,6 +183,16 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 	libst.stringStore = make(map[string]*cacheString)
 	libst.listLocks = make(map[string]sync.Mutex)
 	libst.stringLocks = make(map[string]sync.Mutex)
+
+	// libst.listMap = safeListMap{listMap:make(map[string][]string, getChan: make(chan listBox),
+	// 						appendChan: make(chan listBox),removeChan: make(chan listBox))}
+
+	// libst.stringMap = safeStringMap{stringMap:make(map[string]string, getChan: make(chan stringBox),
+	// 						putChan: make(chan stringBox),deleteChan: make(chan stringBox))}
+
+	// go libst.handleListMap()
+	// go libst.handleStringMap()
+
 	// print("My lease mode is:", mode)
 	if err != nil {
 		return nil, err
@@ -142,18 +254,13 @@ func (ls *libstore) Get(key string) (string, error) {
 	// ls.stringLock.Lock()
 	// defer ls.stringLock.Unlock()
 	ls.mapstringLock.Lock()
-	if _, ok := ls.stringLocks[key]; !ok {
-		var newlock sync.Mutex
-		ls.stringLocks[key] = newlock
-	}
-	keyLock := ls.stringLocks[key]
-	ls.mapstringLock.Unlock()
+	defer ls.mapstringLock.Unlock()
 
-	keyLock.Lock()
-	defer keyLock.Unlock()
+	// defer keyLock.Unlock()
 
 	// fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetReply{}
+	fmt.Println("Getting ", key)
 	// fmt.Println("My hostport is libst: ", ls.myPort)
 	requestArgs := &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}
 	if _, ok := ls.stringStore[key]; !ok {
@@ -191,18 +298,25 @@ func (ls *libstore) Get(key string) (string, error) {
 		ls.stringStore[key].leaseTime = time.Now()
 		ls.stringStore[key].value = replyArgs.Value
 		go func() {
+
 			time.Sleep(validDur)
-			keyLock.Lock()
-			defer keyLock.Unlock()
+			// keyLock.Lock()
+			// defer keyLock.Unlock()
+			//fmt.Println("About to expire ", key)
+			ls.mapstringLock.Lock()
+			defer ls.mapstringLock.Unlock()
+
 			ls.stringStore[key].leaseTime = time.Time{}
 			ls.stringStore[key].value = ""
 		}()
 		// fmt.Println("CacheString updated to", ls.stringStore[key])
 	}
+	fmt.Println("Getting return", key)
 
 	if replyArgs.Status != storagerpc.OK {
 		return "", errors.New("Get error")
 	}
+
 	return replyArgs.Value, nil
 }
 
@@ -242,16 +356,9 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	// ls.stringLock.Lock()
 	// defer ls.stringLock.Unlock()
 	ls.maplistLock.Lock()
-	if _, ok := ls.listLocks[key]; !ok {
-		var newlock sync.Mutex
-		ls.listLocks[key] = newlock
-	}
-	keyLock := ls.listLocks[key]
-	ls.maplistLock.Unlock()
+	defer ls.maplistLock.Unlock()
 
-	keyLock.Lock()
-	defer keyLock.Unlock()
-
+	
 
 	// fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetListReply{}
@@ -297,8 +404,8 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 		ls.listStore[key].value = replyArgs.Value
 		go func() {
 			time.Sleep(validDur)
-			keyLock.Lock()
-			defer keyLock.Unlock()
+			ls.maplistLock.Lock()
+			defer ls.maplistLock.Unlock()
 			ls.listStore[key].leaseTime = time.Time{}
 			ls.listStore[key].value = make([]string, 0)
 		}()
@@ -345,18 +452,17 @@ func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storage
 	reply.Status = storagerpc.KeyNotFound
 
 	if _, ok := ls.stringLocks[args.Key]; ok {
-		keylock := ls.stringLocks[args.Key]
 		reply.Status=storagerpc.OK
-		keylock.Lock()	
-		defer keylock.Unlock()	
+		ls.mapstringLock.Lock()
+		defer ls.mapstringLock.Unlock()
+		//fmt.Println("Revoke lease", args.Key)
 		ls.stringStore[args.Key].leaseTime=time.Time{}
 		ls.stringStore[args.Key].value=""
 	}
 	if _, ok := ls.listLocks[args.Key]; ok {
-		keylock := ls.listLocks[args.Key]
 		reply.Status=storagerpc.OK
-		keylock.Lock()	
-		defer keylock.Unlock()	
+		ls.maplistLock.Lock()
+		defer ls.maplistLock.Unlock()
 		ls.listStore[args.Key].value = make([]string,0)
 		ls.listStore[args.Key].leaseTime=time.Time{}
 	}
