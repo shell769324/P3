@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/rpc"
+	"net/http"
 	"os"
 	"time"
 	"sync"
@@ -31,8 +32,9 @@ type tribServer struct {
 //
 // For hints on how to properly setup RPC, see the rpc/tribrpc package.
 func NewTribServer(masterServerHostPort, myHostPort string) (TribServer, error) {
+	fmt.Println("Trib Server is called")
 	tribserver := new(tribServer)
-	listener, err := net.Listen("tcp", "localhost:"+myHostPort)
+	listener, err := net.Listen("tcp", myHostPort)
 	tribserver.listener = listener
 	tribserver.libStore, err = libstore.NewLibstore(masterServerHostPort, myHostPort, libstore.Never)
 
@@ -45,6 +47,8 @@ func NewTribServer(masterServerHostPort, myHostPort string) (TribServer, error) 
 	if err != nil {
 		return nil, err
 	}
+	rpc.HandleHTTP()
+	go http.Serve(listener, nil)
 	return tribserver, nil
 }
 
@@ -121,6 +125,7 @@ func (ts *tribServer) GetFriends(args *tribrpc.GetFriendsArgs, reply *tribrpc.Ge
 }
 
 func (ts *tribServer) PostTribble(args *tribrpc.PostTribbleArgs, reply *tribrpc.PostTribbleReply) error {
+	//fmt.Println(args.UserID, "posts new Trib,", args.Contents)
 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
 	if err != nil {
 		reply.Status = tribrpc.NoSuchUser
@@ -154,7 +159,29 @@ func (ts *tribServer) DeleteTribble(args *tribrpc.DeleteTribbleArgs, reply *trib
 	return nil
 }
 
+func recentFirst(tribList []string) []string {
+	if len(tribList) <= 1 {
+		return tribList
+	}
+	afterColon1 := strings.Split(tribList[0], ":")[1]
+	unixTime1, _ := strconv.ParseInt(strings.Split(afterColon1, "_")[1], 16, 64)
+	afterColon2 := strings.Split(tribList[1], ":")[1]
+	unixTime2, _ := strconv.ParseInt(strings.Split(afterColon2, "_")[1], 16, 64)
+	if unixTime1 < unixTime2 {
+		for i := 0; i < (len(tribList)/2); i++ {
+			temp := tribList[i]
+			tribList[i] = tribList[len(tribList) - 1 - i]
+			tribList[len(tribList) - 1 - i] = temp
+		}
+	}
+	if len(tribList) >= 100 {
+		tribList = tribList[:100]
+	}
+	return tribList
+}
+
 func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.GetTribblesReply) error {
+	//fmt.Println(args.UserID, "is calling get tribs")
 	// Check if user exists first. TODO can do away without this
 	_, err := ts.libStore.Get(util.FormatUserKey(args.UserID))
 	if err != nil {
@@ -162,25 +189,16 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 		return nil
 	}
 	tribList, _ := ts.libStore.GetList(util.FormatTribListKey(args.UserID))
-	tribbleList := make([]tribrpc.Tribble, 0)
+	tribList = recentFirst(tribList)
 	for _, tribID := range tribList {
 		marshalledTribble, _ := ts.libStore.Get(tribID)
 		var tribble tribrpc.Tribble
 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
 			panic(err)
 		}
-		tribbleList = append(tribbleList, tribble)
-	}
-	// fmt.Printf("Len of tribble list is : %v\n", len(tribbleList))
-	start := 0
-	if len(tribbleList) >= 100 {
-		start = len(tribbleList) - 100
-	}
-	for i := len(tribbleList) - 1; i >= start; i-- {
-		reply.Tribbles = append(reply.Tribbles, tribbleList[i])
+		reply.Tribbles = append(reply.Tribbles, tribble)
 	}
 	reply.Status = tribrpc.OK
-
 	return nil
 }
 
@@ -196,12 +214,7 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 	tribbleIDs := make([][]string, len(subList))
 	for i := 0; i < len(subList); i++ {
 		tribList, _ := ts.libStore.GetList(util.FormatTribListKey(subList[i]))
-		for j := 0; j < (len(tribList)/2); j++ {
-			temp := tribList[j]
-			tribList[j] = tribList[len(tribList) - 1 - j]
-			tribList[len(tribList) - 1 - j] = temp
-		}
-		tribbleIDs[i] = tribList
+		tribbleIDs[i] = recentFirst(tribList)
 	}
 	tribSortIndex := make([]int, len(subList))
 	for {

@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	//"log"
-	// "fmt"
+	 "fmt"
 	"net/rpc"
 	"sort"
 	"sync"
@@ -19,14 +19,14 @@ type cacheString struct {
 	value        string
 	leaseTime    time.Time
 	window       []time.Time
-	validSeconds int
+	validSeconds time.Duration
 }
 
 type cacheList struct {
 	value        []string
 	leaseTime    time.Time
 	window       []time.Time
-	validSeconds int
+	validSeconds time.Duration
 }
 
 type libstore struct {
@@ -42,8 +42,6 @@ type libstore struct {
 	mapstringLock sync.Mutex
 	listLocks     map[string]sync.Mutex //locks for individual lists
 	stringLocks   map[string]sync.Mutex // locks for individual strings
-
-
 
 }
 
@@ -72,6 +70,7 @@ type libstore struct {
 // need to create a brand new HTTP handler to serve the requests (the Libstore may
 // simply reuse the TribServer's HTTP handler since the two run in the same process).
 func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libstore, error) {
+	fmt.Println("Lib store is called")
 	libst := new(libstore)
 	libst.myPort = myHostPort
 	// print(masterServerHostPort)
@@ -163,7 +162,7 @@ func (ls *libstore) Get(key string) (string, error) {
 	}
 	timeNow := time.Now()
 	ls.stringStore[key].window = append(ls.stringStore[key].window, timeNow)
-	if timeNow.Before(ls.stringStore[key].leaseTime.Add(time.Duration(ls.stringStore[key].validSeconds) * time.Second)) {
+	if timeNow.Before(ls.stringStore[key].leaseTime.Add(ls.stringStore[key].validSeconds)) {
 		// fmt.Printf("Lease is still valid. Time now:%v , valid seconds: %v, leasetime :%v", timeNow, ls.stringStore[key].leaseTime, ls.stringStore[key].validSeconds)
 		return ls.stringStore[key].value, nil
 	}
@@ -187,16 +186,16 @@ func (ls *libstore) Get(key string) (string, error) {
 
 	if replyArgs.Status == storagerpc.OK && requestArgs.WantLease && replyArgs.Lease.Granted {
 		// fmt.Println("Lease granted, update value: ", replyArgs.Value)
-		ls.stringStore[key].validSeconds = replyArgs.Lease.ValidSeconds
+		validDur := time.Duration(replyArgs.Lease.ValidSeconds) * time.Second
+		ls.stringStore[key].validSeconds = validDur
 		ls.stringStore[key].leaseTime = time.Now()
 		ls.stringStore[key].value = replyArgs.Value
 		go func() {
+			time.Sleep(validDur)
 			keyLock.Lock()
 			defer keyLock.Unlock()
-
-			time.Sleep(time.Duration(ls.stringStore[key].validSeconds) * time.Second)
-			ls.stringStore[key].leaseTime=time.Time{}
-			ls.stringStore[key].value=""
+			ls.stringStore[key].leaseTime = time.Time{}
+			ls.stringStore[key].value = ""
 		}()
 		// fmt.Println("CacheString updated to", ls.stringStore[key])
 	}
@@ -208,10 +207,6 @@ func (ls *libstore) Get(key string) (string, error) {
 }
 
 func (ls *libstore) Put(key, value string) error {
-
-
-
-
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
@@ -268,7 +263,7 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	}
 	timeNow := time.Now()
 	ls.listStore[key].window = append(ls.listStore[key].window, timeNow)
-	if timeNow.Before(ls.listStore[key].leaseTime.Add(time.Duration(ls.listStore[key].validSeconds) * time.Second)) {
+	if timeNow.Before(ls.listStore[key].leaseTime.Add(ls.listStore[key].validSeconds)) {
 		// fmt.Printf("Lease is still valid. Time now:%v , valid seconds: %v, leasetime :%v", timeNow, ls.listStore[key].leaseTime, ls.listStore[key].validSeconds)
 		return ls.listStore[key].value, nil
 	}
@@ -296,17 +291,17 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	// fmt.Println(replyArgs.Status, requestArgs.WantLease, replyArgs.Lease.Granted)
 	if replyArgs.Status == storagerpc.OK && requestArgs.WantLease && replyArgs.Lease.Granted {
 		// fmt.Println("Lease granted, update value: ", replyArgs.Value)
-		ls.listStore[key].validSeconds = replyArgs.Lease.ValidSeconds
+		validDur := time.Duration(replyArgs.Lease.ValidSeconds) * time.Second
+		ls.listStore[key].validSeconds = validDur
 		ls.listStore[key].leaseTime = time.Now()
 		ls.listStore[key].value = replyArgs.Value
 		go func() {
+			time.Sleep(validDur)
 			keyLock.Lock()
 			defer keyLock.Unlock()
-			time.Sleep(time.Duration(ls.listStore[key].validSeconds) * time.Second)
-			ls.listStore[key].leaseTime=time.Time{}
-			ls.listStore[key].value=make([]string,0)
+			ls.listStore[key].leaseTime = time.Time{}
+			ls.listStore[key].value = make([]string, 0)
 		}()
-
 		// fmt.Println("CacheString updated to", ls.listStore[key])
 	}
 	if replyArgs.Status != storagerpc.OK {
@@ -346,7 +341,7 @@ func (ls *libstore) AppendToList(key, newItem string) error {
 }
 
 func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storagerpc.RevokeLeaseReply) error {
-	print("Revoke Lease Called")
+	//print("Revoke Lease Called")
 	reply.Status = storagerpc.KeyNotFound
 
 	if _, ok := ls.stringLocks[args.Key]; ok {
