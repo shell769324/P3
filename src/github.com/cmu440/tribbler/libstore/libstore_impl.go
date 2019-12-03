@@ -60,6 +60,7 @@ type libstore struct {
 	virtualIDs []uint32
 	hostPorts  map[uint32]string
 	conns      map[string]*rpc.Client
+	mode 	  LeaseMode
 
 	// Concurrent safe maps
 	listMap   safeListMap
@@ -69,8 +70,6 @@ type libstore struct {
 	stringStore   map[string]*cacheString
 	maplistLock   sync.Mutex
 	mapstringLock sync.Mutex
-	listLocks     map[string]sync.Mutex //locks for individual lists
-	stringLocks   map[string]sync.Mutex // locks for individual strings
 
 }
 
@@ -154,17 +153,18 @@ type libstore struct {
 // need to create a brand new HTTP handler to serve the requests (the Libstore may
 // simply reuse the TribServer's HTTP handler since the two run in the same process).
 func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libstore, error) {
-	fmt.Println("Lib store is called")
 	libst := new(libstore)
 	libst.myPort = myHostPort
+	if myHostPort == "" {
+		mode = Never
+	}
+	libst.mode = mode
 	// print(masterServerHostPort)
 	client, err := rpc.DialHTTP("tcp", masterServerHostPort)
 	libst.conns = make(map[string]*rpc.Client)
 	libst.conns[masterServerHostPort] = client
 	libst.listStore = make(map[string]*cacheList)
 	libst.stringStore = make(map[string]*cacheString)
-	libst.listLocks = make(map[string]sync.Mutex)
-	libst.stringLocks = make(map[string]sync.Mutex)
 
 	// libst.listMap = safeListMap{listMap:make(map[string][]string, getChan: make(chan listBox),
 	// 						appendChan: make(chan listBox),removeChan: make(chan listBox))}
@@ -197,12 +197,11 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 		libst.virtualIDs = append(libst.virtualIDs, node.VirtualIDs...)
 	}
 
-	fmt.Println("Virtual IDs: ", libst.virtualIDs)
+	//fmt.Println("Virtual IDs: ", libst.virtualIDs)
 
 	sort.Slice(libst.virtualIDs, func(i, j int) bool { return libst.virtualIDs[i] > libst.virtualIDs[j] })
 
 	err = rpc.RegisterName("LeaseCallbacks", librpc.Wrap(libst))
-	print(err)
 	// rpc.HandleHTTP()
 
 	return libst, nil
@@ -268,13 +267,17 @@ func (ls *libstore) Get(key string) (string, error) {
 		requestArgs.WantLease = true
 	}
 
+	if ls.mode == Never {
+		requestArgs.WantLease = false
+	} else if ls.mode == Always {
+		requestArgs.WantLease = true
+	}
+
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		fmt.Println("id before", id)
-
-		client, id := ls.getClient(id)
-
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.Get", requestArgs, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -299,7 +302,6 @@ func (ls *libstore) Get(key string) (string, error) {
 		}()
 		// fmt.Println("CacheString updated to", ls.stringStore[key])
 	}
-	fmt.Println("Getting return", key)
 
 	if replyArgs.Status != storagerpc.OK {
 		return "", errors.New("Get error")
@@ -312,23 +314,12 @@ func (ls *libstore) Put(key, value string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
-	fmt.Println("Put called")
+	var client *rpc.Client
 
-	for temp_id := 0; err != nil && err.Error() != "error"; {
-		fmt.Println("id before, tempid:", id, temp_id)
-		client, id := ls.getClient(temp_id)
-		temp_id = id
-		fmt.Println(ls.virtualIDs, len(ls.virtualIDs))
-		fmt.Println("Put id, Err: ", id, err)
-
+	for err != nil && err.Error() != "error" {
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
-
-		temp_id = id + 1
-		temp_id %= len(ls.virtualIDs)
-		// id = id + 1
-		// id = id % len(ls.virtualIDs)
-		fmt.Println("id after: tempid:  ", id, temp_id)
-
+		id = (id + 1) % len(ls.virtualIDs)
 	}
 	if replyArgs.Status != storagerpc.OK {
 		return errors.New("Put error")
@@ -339,10 +330,11 @@ func (ls *libstore) Put(key, value string) error {
 func (ls *libstore) Delete(key string) error {
 
 	replyArgs := &storagerpc.DeleteReply{}
+	var client *rpc.Client
 	id := ls.getVirtualID(key)
 	err := errors.New("")
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.Delete", &storagerpc.DeleteArgs{Key: key}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -384,12 +376,17 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 		//Request lease
 		requestArgs.WantLease = true
 	}
+	if ls.mode == Never {
+		requestArgs.WantLease = false
+	} else if ls.mode == Always {
+		requestArgs.WantLease = true
+	}
 
 	id := ls.getVirtualID(key)
 	err := errors.New("")
-
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.GetList", &storagerpc.GetArgs{Key: key, WantLease: requestArgs.WantLease, HostPort: ls.myPort}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -419,8 +416,9 @@ func (ls *libstore) RemoveFromList(key, removeItem string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.RemoveFromList", &storagerpc.PutArgs{Key: key, Value: removeItem}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -434,8 +432,9 @@ func (ls *libstore) AppendToList(key, newItem string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -449,21 +448,22 @@ func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storage
 	//print("Revoke Lease Called")
 	reply.Status = storagerpc.KeyNotFound
 
-	if _, ok := ls.stringLocks[args.Key]; ok {
+	ls.mapstringLock.Lock()
+	if _, ok := ls.stringStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		ls.mapstringLock.Lock()
-		defer ls.mapstringLock.Unlock()
 		//fmt.Println("Revoke lease", args.Key)
 		ls.stringStore[args.Key].leaseTime = time.Time{}
 		ls.stringStore[args.Key].value = ""
 	}
-	if _, ok := ls.listLocks[args.Key]; ok {
+	ls.mapstringLock.Unlock()
+
+	ls.maplistLock.Lock()
+	if _, ok := ls.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		ls.maplistLock.Lock()
-		defer ls.maplistLock.Unlock()
 		ls.listStore[args.Key].value = make([]string, 0)
 		ls.listStore[args.Key].leaseTime = time.Time{}
 	}
+	ls.maplistLock.Unlock()
 
 	return nil
 }
