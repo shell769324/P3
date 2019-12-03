@@ -141,6 +141,8 @@ func main() {
 				LOGE.Fatalf("FAIL: RemoveSubscription returned error status '%s'\n", statusMap[status])
 			}
 		case GetTribbles:
+
+			fmt.Println("Get tribbles")
 			target := rand.Intn(numTargets)
 			tribbles, status, err := client.GetTribbles(strconv.Itoa(target))
 			if err != nil {
@@ -149,10 +151,13 @@ func main() {
 			if status == 0 {
 				LOGE.Fatalf("FAIL: GetTribbles returned error status '%s'\n", statusMap[status])
 			}
+			fmt.Println("Len of received tribbles: ", len(tribbles))
 			if !validateTribbles(&tribbles, numTargets) {
-				LOGE.Fatalln("FAIL: failed while validating returned tribbles")
+				LOGE.Fatalln("FAIL Get Tribble: failed while validating returned tribbles")
 			}
 		case PostTribble:
+			fmt.Println("Post tribbles")
+
 			tribVal := userNum + tribIndex*numTargets
 			msg := fmt.Sprintf("%d;%s", tribVal, *clientId)
 			_, status, err := client.PostTribble(user, msg)
@@ -165,6 +170,8 @@ func main() {
 			}
 			tribIndex++
 		case GetTribblesBySubscription:
+			fmt.Println("Get by sub tribbles")
+
 			tribbles, status, err := client.GetTribblesBySubscription(user)
 			if err != nil {
 				LOGE.Fatalf("FAIL: GetTribblesBySubscription returned error '%s'\n", err)
@@ -173,7 +180,7 @@ func main() {
 				LOGE.Fatalf("FAIL: GetTribblesBySubscription returned error status '%s'\n", statusMap[status])
 			}
 			if !validateTribbles(&tribbles, numTargets) {
-				LOGE.Fatalln("FAIL: failed while validating returned tribbles")
+				LOGE.Fatalln("FAIL Get tribble by subscription: failed while validating returned tribbles")
 			}
 		}
 	}
@@ -207,6 +214,7 @@ func validateTribbles(tribbles *[]tribrpc.Tribble, numTargets int) bool {
 	userIdToLastVal := make(map[string]int, len(*tribbles))
 	for _, tribble := range *tribbles {
 		valAndId := strings.Split(tribble.Contents, ";")
+		// fmt.Println("valAndId: ", valAndId)
 		val, err := strconv.Atoi(valAndId[0])
 		if err != nil {
 			return false
@@ -217,6 +225,7 @@ func validateTribbles(tribbles *[]tribrpc.Tribble, numTargets int) bool {
 		}
 		userClientId := fmt.Sprintf("%s;%s", tribble.UserID, valAndId[1])
 		lastVal := userIdToLastVal[userClientId]
+		// fmt.Println("Lastval: ", lastVal)
 		if val%numTargets == user && (lastVal == 0 || lastVal == val+numTargets) {
 			userIdToLastVal[userClientId] = val
 		} else {

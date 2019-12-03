@@ -134,8 +134,13 @@ func (ts *tribServer) PostTribble(args *tribrpc.PostTribbleArgs, reply *tribrpc.
 	ts.mux.Lock()
 	tribble := tribrpc.Tribble{UserID: args.UserID, Contents: args.Contents, Posted: time.Now()}
 	tribbleMar, _ := json.Marshal(tribble)
+
 	tribKey := util.FormatPostKey(args.UserID, tribble.Posted.UnixNano())
-	ts.libStore.AppendToList(util.FormatTribListKey(args.UserID), tribKey)
+	err = ts.libStore.AppendToList(util.FormatTribListKey(args.UserID), tribKey)
+	for err != nil {
+		tribKey := util.FormatPostKey(args.UserID, tribble.Posted.UnixNano())
+		err = ts.libStore.AppendToList(util.FormatTribListKey(args.UserID), tribKey)
+	}
 	ts.mux.Unlock()
 	ts.libStore.Put(tribKey, string(tribbleMar))
 	reply.PostKey = tribKey
@@ -192,12 +197,12 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 	tribList = recentFirst(tribList)
 	for _, tribID := range tribList {
 		marshalledTribble, getErr := ts.libStore.Get(tribID)
-		for getErr != nil {
-			marshalledTribble, getErr = ts.libStore.Get(tribID)
-		}
-		// if getErr != nil {
-		// 	continue
+		// for getErr != nil {
+		// 	marshalledTribble, getErr = ts.libStore.Get(tribID)
 		// }
+		if getErr != nil {
+			continue
+		}
 		var tribble tribrpc.Tribble
 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
 			panic(err)

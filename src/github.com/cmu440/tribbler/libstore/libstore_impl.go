@@ -60,7 +60,7 @@ type libstore struct {
 	virtualIDs []uint32
 	hostPorts  map[uint32]string
 	conns      map[string]*rpc.Client
-
+	mode       LeaseMode
 	// Concurrent safe maps
 	listMap   safeListMap
 	stringMap safeStringMap
@@ -157,6 +157,12 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 	fmt.Println("Lib store is called")
 	libst := new(libstore)
 	libst.myPort = myHostPort
+
+	if myHostPort == "" {
+		mode = Never
+	}
+	libst.mode = mode
+
 	// print(masterServerHostPort)
 	client, err := rpc.DialHTTP("tcp", masterServerHostPort)
 	libst.conns = make(map[string]*rpc.Client)
@@ -239,7 +245,6 @@ func (ls *libstore) Get(key string) (string, error) {
 	// ls.stringLock.Lock()
 	// defer ls.stringLock.Unlock()
 	ls.mapstringLock.Lock()
-	defer ls.mapstringLock.Unlock()
 
 	// defer keyLock.Unlock()
 
@@ -267,13 +272,19 @@ func (ls *libstore) Get(key string) (string, error) {
 		//Request lease
 		requestArgs.WantLease = true
 	}
-
+	ls.mapstringLock.Unlock()
+	if ls.mode == Never {
+		requestArgs.WantLease = false
+	} else if ls.mode == Always {
+		requestArgs.WantLease = true
+	}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		fmt.Println("id before", id)
+		// fmt.Println("id before", id)
 
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 
 		err = client.Call("StorageServer.Get", requestArgs, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
@@ -282,9 +293,11 @@ func (ls *libstore) Get(key string) (string, error) {
 	if replyArgs.Status == storagerpc.OK && requestArgs.WantLease && replyArgs.Lease.Granted {
 		// fmt.Println("Lease granted, update value: ", replyArgs.Value)
 		validDur := time.Duration(replyArgs.Lease.ValidSeconds) * time.Second
+		ls.mapstringLock.Lock()
 		ls.stringStore[key].validSeconds = validDur
 		ls.stringStore[key].leaseTime = time.Now()
 		ls.stringStore[key].value = replyArgs.Value
+		ls.mapstringLock.Unlock()
 		go func() {
 
 			time.Sleep(validDur)
@@ -292,14 +305,14 @@ func (ls *libstore) Get(key string) (string, error) {
 			// defer keyLock.Unlock()
 			//fmt.Println("About to expire ", key)
 			ls.mapstringLock.Lock()
-			defer ls.mapstringLock.Unlock()
 
 			ls.stringStore[key].leaseTime = time.Time{}
 			ls.stringStore[key].value = ""
+			ls.mapstringLock.Unlock()
 		}()
 		// fmt.Println("CacheString updated to", ls.stringStore[key])
 	}
-	fmt.Println("Getting return", key)
+	// fmt.Println("Getting return", key)
 
 	if replyArgs.Status != storagerpc.OK {
 		return "", errors.New("Get error")
@@ -314,22 +327,29 @@ func (ls *libstore) Put(key, value string) error {
 	err := errors.New("")
 	fmt.Println("Put called")
 
-	for temp_id := 0; err != nil && err.Error() != "error"; {
-		fmt.Println("id before, tempid:", id, temp_id)
-		client, id := ls.getClient(temp_id)
-		temp_id = id
-		fmt.Println(ls.virtualIDs, len(ls.virtualIDs))
-		fmt.Println("Put id, Err: ", id, err)
-
+	var client *rpc.Client
+	for err != nil && err.Error() != "error" {
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
-
-		temp_id = id + 1
-		temp_id %= len(ls.virtualIDs)
-		// id = id + 1
-		// id = id % len(ls.virtualIDs)
-		fmt.Println("id after: tempid:  ", id, temp_id)
-
+		id = (id + 1) % len(ls.virtualIDs)
 	}
+
+	// for temp_id := 0; err != nil && err.Error() != "error"; {
+	// 	fmt.Println("id before, tempid:", id, temp_id)
+	// 	client, id := ls.getClient(temp_id)
+	// 	temp_id = id
+	// 	fmt.Println(ls.virtualIDs, len(ls.virtualIDs))
+	// 	fmt.Println("Put id, Err: ", id, err)
+
+	// 	err = client.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
+
+	// 	temp_id = id + 1
+	// 	temp_id %= len(ls.virtualIDs)
+	// 	// id = id + 1
+	// 	// id = id % len(ls.virtualIDs)
+	// 	fmt.Println("id after: tempid:  ", id, temp_id)
+
+	// }
 	if replyArgs.Status != storagerpc.OK {
 		return errors.New("Put error")
 	}
@@ -341,8 +361,9 @@ func (ls *libstore) Delete(key string) error {
 	replyArgs := &storagerpc.DeleteReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.Delete", &storagerpc.DeleteArgs{Key: key}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -356,7 +377,6 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	// ls.stringLock.Lock()
 	// defer ls.stringLock.Unlock()
 	ls.maplistLock.Lock()
-	defer ls.maplistLock.Unlock()
 
 	// fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetListReply{}
@@ -384,28 +404,38 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 		//Request lease
 		requestArgs.WantLease = true
 	}
+	ls.maplistLock.Unlock()
+	if ls.mode == Never {
+		requestArgs.WantLease = false
+	} else if ls.mode == Always {
+		requestArgs.WantLease = true
+	}
 
 	id := ls.getVirtualID(key)
 	err := errors.New("")
-
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.GetList", &storagerpc.GetArgs{Key: key, WantLease: requestArgs.WantLease, HostPort: ls.myPort}, replyArgs)
+		fmt.Println("Getlist error: ", err)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
 	// fmt.Println(replyArgs.Status, requestArgs.WantLease, replyArgs.Lease.Granted)
 	if replyArgs.Status == storagerpc.OK && requestArgs.WantLease && replyArgs.Lease.Granted {
 		// fmt.Println("Lease granted, update value: ", replyArgs.Value)
 		validDur := time.Duration(replyArgs.Lease.ValidSeconds) * time.Second
+		ls.maplistLock.Lock()
 		ls.listStore[key].validSeconds = validDur
 		ls.listStore[key].leaseTime = time.Now()
 		ls.listStore[key].value = replyArgs.Value
+		ls.maplistLock.Unlock()
 		go func() {
 			time.Sleep(validDur)
 			ls.maplistLock.Lock()
-			defer ls.maplistLock.Unlock()
+			// defer ls.maplistLock.Unlock()
 			ls.listStore[key].leaseTime = time.Time{}
 			ls.listStore[key].value = make([]string, 0)
+			ls.maplistLock.Unlock()
 		}()
 		// fmt.Println("CacheString updated to", ls.listStore[key])
 	}
@@ -419,8 +449,10 @@ func (ls *libstore) RemoveFromList(key, removeItem string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
+
 		err = client.Call("StorageServer.RemoveFromList", &storagerpc.PutArgs{Key: key, Value: removeItem}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -434,8 +466,9 @@ func (ls *libstore) AppendToList(key, newItem string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
+	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.AppendToList", &storagerpc.PutArgs{Key: key, Value: newItem}, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -452,17 +485,19 @@ func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storage
 	if _, ok := ls.stringLocks[args.Key]; ok {
 		reply.Status = storagerpc.OK
 		ls.mapstringLock.Lock()
-		defer ls.mapstringLock.Unlock()
 		//fmt.Println("Revoke lease", args.Key)
 		ls.stringStore[args.Key].leaseTime = time.Time{}
 		ls.stringStore[args.Key].value = ""
+		ls.mapstringLock.Unlock()
+
 	}
 	if _, ok := ls.listLocks[args.Key]; ok {
 		reply.Status = storagerpc.OK
 		ls.maplistLock.Lock()
-		defer ls.maplistLock.Unlock()
 		ls.listStore[args.Key].value = make([]string, 0)
 		ls.listStore[args.Key].leaseTime = time.Time{}
+		ls.maplistLock.Unlock()
+
 	}
 
 	return nil
