@@ -112,6 +112,7 @@ func forceCacheGetList(key string, value string) {
 	ls.AppendToList(key, value)
 	for i := 0; i < 2*storagerpc.QueryCacheThresh; i++ {
 		ls.GetList(key)
+		// fmt.Println("forcing cache")
 	}
 }
 
@@ -853,6 +854,7 @@ func testCacheGetListCorrect() {
 			failCount++
 			return
 		}
+		// fmt.Println("Progress")
 	}
 	if pc.GetRpcCount() > 0 {
 		LOGE.Println("FAIL: should not contact server when using cache")
@@ -1081,62 +1083,50 @@ func testRevokeGetListUpdate() {
 
 func main() {
 	initTests := []testFunc{
-		/*{"testNonexistentServer", testNonexistentServer},
+		{"testNonexistentServer", testNonexistentServer},
 		{"testNoLeases", testNoLeases},
-		{"testAlwaysLeases", testAlwaysLeases},*/
+		{"testAlwaysLeases", testAlwaysLeases},
 	}
-	tests := []testFunc{ /*
-			{"testGetError", testGetError},
-			{"testGetErrorStatus", testGetErrorStatus},
-		{"testGetValid", testGetValid}, 
-			{"testPutError", testPutError},
-			{"testPutErrorStatus", testPutErrorStatus},
-			{"testPutValid", testPutValid},
-			{"testDeleteError", testDeleteError},
-			{"testDeleteErrorStatus", testDeleteErrorStatus},
-			{"testDeleteValid", testDeleteValid},
-			{"testGetListError", testGetListError},
-			{"testGetListErrorStatus", testGetListErrorStatus},
-			{"testGetListValid", testGetListValid},
-			{"testAppendToListError", testAppendToListError},
-			{"testAppendToListErrorStatus", testAppendToListErrorStatus},
-			{"testAppendToListValid", testAppendToListValid},
-			{"testRemoveFromListError", testRemoveFromListError},
-			{"testRemoveFromListErrorStatus", testRemoveFromListErrorStatus},
-			{"testRemoveFromListValid", testRemoveFromListValid},
-			{"testCacheGetLimit", testCacheGetLimit},
-			{"testCacheGetLimit2", testCacheGetLimit2},
-			{"testCacheGetCorrect", testCacheGetCorrect},
-			{"testCacheGetLeaseNotGranted", testCacheGetLeaseNotGranted},
-			{"testCacheGetLeaseNotGranted2", testCacheGetLeaseNotGranted2},
-			{"testCacheGetLeaseTimeout", testCacheGetLeaseTimeout},
-			//{"testCacheGetMemoryLeak", testCacheGetMemoryLeak},
-			{"testRevokeGetValid", testRevokeGetValid},
-			{"testRevokeGetNonexistent", testRevokeGetNonexistent},
-			{"testRevokeGetUpdate", testRevokeGetUpdate},
-			{"testCacheGetListLimit", testCacheGetListLimit},
-			{"testCacheGetListLimit2", testCacheGetListLimit2},*/
-			{"testCacheGetListCorrect", testCacheGetListCorrect},
-			{"testCacheGetListLeaseNotGranted", testCacheGetListLeaseNotGranted},
-			{"testCacheGetListLeaseNotGranted2", testCacheGetListLeaseNotGranted2},
-			{"testCacheGetListLeaseTimeout", testCacheGetListLeaseTimeout},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
-			{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
+	tests := []testFunc{
+		{"testGetError", testGetError},
+		{"testGetErrorStatus", testGetErrorStatus},
+		{"testGetValid", testGetValid},
+		{"testPutError", testPutError},
+		{"testPutErrorStatus", testPutErrorStatus},
+		{"testPutValid", testPutValid},
+		{"testDeleteError", testDeleteError},
+		{"testDeleteErrorStatus", testDeleteErrorStatus},
+		{"testDeleteValid", testDeleteValid},
+		{"testGetListError", testGetListError},
+		{"testGetListErrorStatus", testGetListErrorStatus},
+		{"testGetListValid", testGetListValid},
+		{"testAppendToListError", testAppendToListError},
+		{"testAppendToListErrorStatus", testAppendToListErrorStatus},
+		{"testAppendToListValid", testAppendToListValid},
+		{"testRemoveFromListError", testRemoveFromListError},
+		{"testRemoveFromListErrorStatus", testRemoveFromListErrorStatus},
+		{"testRemoveFromListValid", testRemoveFromListValid},
+		{"testCacheGetLimit", testCacheGetLimit},
+		{"testCacheGetLimit2", testCacheGetLimit2},
+		{"testCacheGetCorrect", testCacheGetCorrect},
+		{"testCacheGetLeaseNotGranted", testCacheGetLeaseNotGranted},
+		{"testCacheGetLeaseNotGranted2", testCacheGetLeaseNotGranted2},
+		{"testCacheGetLeaseTimeout", testCacheGetLeaseTimeout},
+		//{"testCacheGetMemoryLeak", testCacheGetMemoryLeak},
+		{"testRevokeGetValid", testRevokeGetValid},
+		{"testRevokeGetNonexistent", testRevokeGetNonexistent},
+		{"testRevokeGetUpdate", testRevokeGetUpdate},
+		{"testCacheGetListLimit", testCacheGetListLimit},
+		{"testCacheGetListLimit2", testCacheGetListLimit2},
+		{"testCacheGetListCorrect", testCacheGetListCorrect},
+		{"testCacheGetListLeaseNotGranted", testCacheGetListLeaseNotGranted},
+		{"testCacheGetListLeaseNotGranted2", testCacheGetListLeaseNotGranted2},
+		{"testCacheGetListLeaseTimeout", testCacheGetListLeaseTimeout},
+		//{"testCacheGetListMemoryLeak", testCacheGetListMemoryLeak},
 
-			/*{"testRevokeGetListValid", testRevokeGetListValid},
-			{"testRevokeGetListNonexistent", testRevokeGetListNonexistent},
-			{"testRevokeGetListUpdate", testRevokeGetListUpdate},*/
+		{"testRevokeGetListValid", testRevokeGetListValid},
+		{"testRevokeGetListNonexistent", testRevokeGetListNonexistent},
+		{"testRevokeGetListUpdate", testRevokeGetListUpdate},
 	}
 
 	flag.Parse()

@@ -253,7 +253,7 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 		//fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
 		marshalledTribble, getError := ts.libStore.Get(tribbleIDs[maxIndex][tribSortIndex[maxIndex]])
 		if getError != nil {
-			// tribSortIndex[maxIndex]++
+			tribSortIndex[maxIndex]++
 			continue
 		}
 		var tribble tribrpc.Tribble

@@ -261,6 +261,7 @@ func (ls *libstore) Get(key string) (string, error) {
 	ls.stringStore[key].window = append(ls.stringStore[key].window, timeNow)
 	if timeNow.Before(ls.stringStore[key].leaseTime.Add(ls.stringStore[key].validSeconds)) {
 		// fmt.Printf("Lease is still valid. Time now:%v , valid seconds: %v, leasetime :%v", timeNow, ls.stringStore[key].leaseTime, ls.stringStore[key].validSeconds)
+		ls.mapstringLock.Unlock()
 		return ls.stringStore[key].value, nil
 	}
 	for len(ls.stringStore[key].window) > 0 &&
@@ -325,7 +326,7 @@ func (ls *libstore) Put(key, value string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
-	fmt.Println("Put called")
+	// fmt.Println("Put called")
 
 	var client *rpc.Client
 	for err != nil && err.Error() != "error" {
@@ -390,6 +391,7 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	ls.listStore[key].window = append(ls.listStore[key].window, timeNow)
 	if timeNow.Before(ls.listStore[key].leaseTime.Add(ls.listStore[key].validSeconds)) {
 		// fmt.Printf("Lease is still valid. Time now:%v , valid seconds: %v, leasetime :%v", timeNow, ls.listStore[key].leaseTime, ls.listStore[key].validSeconds)
+		ls.maplistLock.Unlock()
 		return ls.listStore[key].value, nil
 	}
 	ls.listStore[key].value = make([]string, 0)
@@ -417,7 +419,7 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	for err != nil && err.Error() != "error" {
 		client, id = ls.getClient(id)
 		err = client.Call("StorageServer.GetList", &storagerpc.GetArgs{Key: key, WantLease: requestArgs.WantLease, HostPort: ls.myPort}, replyArgs)
-		fmt.Println("Getlist error: ", err)
+		// fmt.Println("Getlist error: ", err)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
 	// fmt.Println(replyArgs.Status, requestArgs.WantLease, replyArgs.Lease.Granted)
@@ -482,23 +484,22 @@ func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storage
 	//print("Revoke Lease Called")
 	reply.Status = storagerpc.KeyNotFound
 
-	if _, ok := ls.stringLocks[args.Key]; ok {
+	ls.mapstringLock.Lock()
+	if _, ok := ls.stringStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		ls.mapstringLock.Lock()
 		//fmt.Println("Revoke lease", args.Key)
 		ls.stringStore[args.Key].leaseTime = time.Time{}
 		ls.stringStore[args.Key].value = ""
-		ls.mapstringLock.Unlock()
-
 	}
-	if _, ok := ls.listLocks[args.Key]; ok {
+	ls.mapstringLock.Unlock()
+
+	ls.maplistLock.Lock()
+	if _, ok := ls.listStore[args.Key]; ok {
 		reply.Status = storagerpc.OK
-		ls.maplistLock.Lock()
 		ls.listStore[args.Key].value = make([]string, 0)
 		ls.listStore[args.Key].leaseTime = time.Time{}
-		ls.maplistLock.Unlock()
-
 	}
+	ls.maplistLock.Unlock()
 
 	return nil
 }
