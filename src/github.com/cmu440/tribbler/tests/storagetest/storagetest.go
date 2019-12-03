@@ -360,6 +360,7 @@ func testAppendGetRemoveList() {
 	if checkErrorStatus(err, replyP.Status, storagerpc.OK) {
 		return
 	}
+	fmt.Println("Progress")
 
 	// test GetList
 	replyL, err := st.GetList("keylist:1", false)
@@ -371,24 +372,28 @@ func testAppendGetRemoveList() {
 		failCount++
 		return
 	}
+	fmt.Println("Progress")
 
 	// test AppendToList for a duplicated item
 	replyP, err = st.AppendToList("keylist:1", "value1")
 	if checkErrorStatus(err, replyP.Status, storagerpc.ItemExists) {
 		return
 	}
+	fmt.Println("Progress")
 
 	// test AppendToList for a different item
 	replyP, err = st.AppendToList("keylist:1", "value2")
 	if checkErrorStatus(err, replyP.Status, storagerpc.OK) {
 		return
 	}
+	fmt.Println("Progress")
 
 	// test RemoveFromList for the first item
 	replyP, err = st.RemoveFromList("keylist:1", "value1")
 	if checkErrorStatus(err, replyP.Status, storagerpc.OK) {
 		return
 	}
+	fmt.Println("Progress")
 
 	// test RemoveFromList for removed item
 	replyP, err = st.RemoveFromList("keylist:1", "value1")
@@ -396,6 +401,7 @@ func testAppendGetRemoveList() {
 		return
 	}
 
+	fmt.Println("Progress")
 	// test GetList after RemoveFromList
 	replyL, err = st.GetList("keylist:1", false)
 	if checkErrorStatus(err, replyL.Status, storagerpc.OK) {
@@ -1407,26 +1413,26 @@ func testDelayedRevokeListWithUpdate3() {
 func main() {
 	jtests := []testFunc{{"testInitStorageServers", testInitStorageServers}}
 	btests := []testFunc{
-		// {"testPutGetDelete", testPutGetDelete},
-		// {"testAppendGetRemoveList", testAppendGetRemoveList},
-		// {"testUpdateWithoutLease", testUpdateWithoutLease},
-		// {"testUpdateBeforeLeaseExpire", testUpdateBeforeLeaseExpire},
-		// {"testUpdateAfterLeaseExpire", testUpdateAfterLeaseExpire},
-		// {"testDeleteBeforeLeaseExpire", testDeleteBeforeLeaseExpire},
-		// {"testDeleteAfterLeaseExpire", testDeleteAfterLeaseExpire},
-		// {"testDeleteWithoutLease", testDeleteWithoutLease},
-		// {"testDelayedRevokeWithoutBlocking", testDelayedRevokeWithoutBlocking},
-		// {"testDelayedRevokeWithLeaseRequest1", testDelayedRevokeWithLeaseRequest1},
-		// {"testDelayedRevokeWithLeaseRequest2", testDelayedRevokeWithLeaseRequest2},
-		// {"testDelayedRevokeWithUpdate1", testDelayedRevokeWithUpdate1},
-		// {"testDelayedRevokeWithUpdate2", testDelayedRevokeWithUpdate2},
-		// {"testDelayedRevokeWithUpdate3", testDelayedRevokeWithUpdate3},
-		// {"testUpdateListWithoutLease", testUpdateListWithoutLease},
-		// {"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
-		// {"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
-		// {"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
-		// {"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
-		// {"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
+		{"testPutGetDelete", testPutGetDelete},
+		{"testAppendGetRemoveList", testAppendGetRemoveList},
+		{"testUpdateWithoutLease", testUpdateWithoutLease},
+		{"testUpdateBeforeLeaseExpire", testUpdateBeforeLeaseExpire},
+		{"testUpdateAfterLeaseExpire", testUpdateAfterLeaseExpire},
+		{"testDeleteBeforeLeaseExpire", testDeleteBeforeLeaseExpire},
+		{"testDeleteAfterLeaseExpire", testDeleteAfterLeaseExpire},
+		{"testDeleteWithoutLease", testDeleteWithoutLease},
+		{"testDelayedRevokeWithoutBlocking", testDelayedRevokeWithoutBlocking},
+		{"testDelayedRevokeWithLeaseRequest1", testDelayedRevokeWithLeaseRequest1},
+		{"testDelayedRevokeWithLeaseRequest2", testDelayedRevokeWithLeaseRequest2},
+		{"testDelayedRevokeWithUpdate1", testDelayedRevokeWithUpdate1},
+		{"testDelayedRevokeWithUpdate2", testDelayedRevokeWithUpdate2},
+		{"testDelayedRevokeWithUpdate3", testDelayedRevokeWithUpdate3},
+		{"testUpdateListWithoutLease", testUpdateListWithoutLease},
+		{"testUpdateListBeforeLeaseExpire", testUpdateListBeforeLeaseExpire},
+		{"testUpdateListAfterLeaseExpire", testUpdateListAfterLeaseExpire},
+		{"testDelayedRevokeListWithoutBlocking", testDelayedRevokeListWithoutBlocking},
+		{"testDelayedRevokeListWithLeaseRequest1", testDelayedRevokeListWithLeaseRequest1},
+		{"testDelayedRevokeListWithLeaseRequest2", testDelayedRevokeListWithLeaseRequest2},
 		{"testDelayedRevokeListWithUpdate1", testDelayedRevokeListWithUpdate1},
 		{"testDelayedRevokeListWithUpdate2", testDelayedRevokeListWithUpdate2},
 		{"testDelayedRevokeListWithUpdate3", testDelayedRevokeListWithUpdate3},

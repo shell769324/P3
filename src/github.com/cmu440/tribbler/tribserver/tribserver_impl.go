@@ -5,13 +5,13 @@ import (
 	//"errors"
 	"fmt"
 	"net"
-	"net/rpc"
 	"net/http"
+	"net/rpc"
 	"os"
-	"time"
-	"sync"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/cmu440/tribbler/libstore"
 	"github.com/cmu440/tribbler/rpc/tribrpc"
@@ -22,7 +22,7 @@ type tribServer struct {
 	// TODO: implement this!
 	listener net.Listener
 	libStore libstore.Libstore
-	mux sync.Mutex
+	mux      sync.Mutex
 }
 
 // NewTribServer creates, starts and returns a new TribServer. masterServerHostPort
@@ -168,10 +168,10 @@ func recentFirst(tribList []string) []string {
 	afterColon2 := strings.Split(tribList[1], ":")[1]
 	unixTime2, _ := strconv.ParseInt(strings.Split(afterColon2, "_")[1], 16, 64)
 	if unixTime1 < unixTime2 {
-		for i := 0; i < (len(tribList)/2); i++ {
+		for i := 0; i < (len(tribList) / 2); i++ {
 			temp := tribList[i]
-			tribList[i] = tribList[len(tribList) - 1 - i]
-			tribList[len(tribList) - 1 - i] = temp
+			tribList[i] = tribList[len(tribList)-1-i]
+			tribList[len(tribList)-1-i] = temp
 		}
 	}
 	if len(tribList) >= 100 {
@@ -192,9 +192,12 @@ func (ts *tribServer) GetTribbles(args *tribrpc.GetTribblesArgs, reply *tribrpc.
 	tribList = recentFirst(tribList)
 	for _, tribID := range tribList {
 		marshalledTribble, getErr := ts.libStore.Get(tribID)
-		if getErr != nil {
-			continue
+		for getErr != nil {
+			marshalledTribble, getErr = ts.libStore.Get(tribID)
 		}
+		// if getErr != nil {
+		// 	continue
+		// }
 		var tribble tribrpc.Tribble
 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
 			panic(err)
@@ -245,13 +248,13 @@ func (ts *tribServer) GetTribblesBySubscription(args *tribrpc.GetTribblesArgs, r
 		//fmt.Printf("Max Index: %v Sort Index: %v \n", maxIndex, tribSortIndex[maxIndex])
 		marshalledTribble, getError := ts.libStore.Get(tribbleIDs[maxIndex][tribSortIndex[maxIndex]])
 		if getError != nil {
-			tribSortIndex[maxIndex]++
+			// tribSortIndex[maxIndex]++
 			continue
 		}
- 		var tribble tribrpc.Tribble
- 		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
- 			panic(err)
- 		}
+		var tribble tribrpc.Tribble
+		if err := json.Unmarshal([]byte(marshalledTribble), &tribble); err != nil {
+			panic(err)
+		}
 		reply.Tribbles = append(reply.Tribbles, tribble)
 		tribSortIndex[maxIndex]++
 		if len(reply.Tribbles) == 100 {

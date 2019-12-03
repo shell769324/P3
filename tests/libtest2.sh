@@ -102,7 +102,7 @@ function testDelayedStart {
 function testUtil {
     for KEY in "${KEYS[@]}"
     do
-        ${LRUNNER} -port=${STORAGE_PORT} p ${KEY} value > /dev/null
+        ${LRUNNER} -port=${STORAGE_PORT} p ${KEY} value 
         PASS=`${LRUNNER} -port=${STORAGE_PORT} g ${KEY} | grep value | wc -l`
         if [ "$PASS" -ne 1 ]
         then

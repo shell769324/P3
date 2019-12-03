@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	//"log"
-	 "fmt"
+	"fmt"
 	"net/rpc"
 	"sort"
 	"sync"
@@ -15,37 +15,30 @@ import (
 	"github.com/cmu440/tribbler/rpc/storagerpc"
 )
 
-
-type stringBox struct{
-	key string
-	value string
+type stringBox struct {
+	key      string
+	value    string
 	retValue chan string
 }
 
-type safeStringMap struct{
-	stringMap map[string]string
-	getChan chan stringBox
-	putChan chan stringBox
+type safeStringMap struct {
+	stringMap  map[string]string
+	getChan    chan stringBox
+	putChan    chan stringBox
 	deleteChan chan stringBox
-
 }
 
-type listBox struct{
-	key string
+type listBox struct {
+	key   string
 	value chan []string
 }
 
-
-type safeListMap struct{
-	listMap map[string][]string
-	getChan chan listBox
+type safeListMap struct {
+	listMap    map[string][]string
+	getChan    chan listBox
 	appendChan chan listBox
 	removeChan chan listBox
 }
-
-
-
-
 
 type cacheString struct {
 	value        string
@@ -69,20 +62,17 @@ type libstore struct {
 	conns      map[string]*rpc.Client
 
 	// Concurrent safe maps
-	listMap safeListMap
+	listMap   safeListMap
 	stringMap safeStringMap
 
-
-
-	listStore   map[string]*cacheList
-	stringStore map[string]*cacheString
+	listStore     map[string]*cacheList
+	stringStore   map[string]*cacheString
 	maplistLock   sync.Mutex
 	mapstringLock sync.Mutex
 	listLocks     map[string]sync.Mutex //locks for individual lists
 	stringLocks   map[string]sync.Mutex // locks for individual strings
 
 }
-
 
 // func (ls *libstore) handleStringMap()  {
 // 	for {
@@ -136,16 +126,8 @@ type libstore struct {
 // 	<- retValue
 // }
 
-
-
 // func (ls *libstore) handleListMap()  {
 // }
-
-
-
-
-
-
 
 // NewLibstore creates a new instance of a TribServer's libstore. masterServerHostPort
 // is the master storage server's host:port. myHostPort is this Libstore's host:port
@@ -214,6 +196,9 @@ func NewLibstore(masterServerHostPort, myHostPort string, mode LeaseMode) (Libst
 		}
 		libst.virtualIDs = append(libst.virtualIDs, node.VirtualIDs...)
 	}
+
+	fmt.Println("Virtual IDs: ", libst.virtualIDs)
+
 	sort.Slice(libst.virtualIDs, func(i, j int) bool { return libst.virtualIDs[i] > libst.virtualIDs[j] })
 
 	err = rpc.RegisterName("LeaseCallbacks", librpc.Wrap(libst))
@@ -260,7 +245,7 @@ func (ls *libstore) Get(key string) (string, error) {
 
 	// fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetReply{}
-	fmt.Println("Getting ", key)
+	// fmt.Println("Getting ", key)
 	// fmt.Println("My hostport is libst: ", ls.myPort)
 	requestArgs := &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}
 	if _, ok := ls.stringStore[key]; !ok {
@@ -286,7 +271,10 @@ func (ls *libstore) Get(key string) (string, error) {
 	id := ls.getVirtualID(key)
 	err := errors.New("")
 	for err != nil && err.Error() != "error" {
+		fmt.Println("id before", id)
+
 		client, id := ls.getClient(id)
+
 		err = client.Call("StorageServer.Get", requestArgs, replyArgs)
 		id = (id + 1) % len(ls.virtualIDs)
 	}
@@ -324,10 +312,23 @@ func (ls *libstore) Put(key, value string) error {
 	replyArgs := &storagerpc.PutReply{}
 	id := ls.getVirtualID(key)
 	err := errors.New("")
-	for err != nil && err.Error() != "error" {
-		client, id := ls.getClient(id)
+	fmt.Println("Put called")
+
+	for temp_id := 0; err != nil && err.Error() != "error"; {
+		fmt.Println("id before, tempid:", id, temp_id)
+		client, id := ls.getClient(temp_id)
+		temp_id = id
+		fmt.Println(ls.virtualIDs, len(ls.virtualIDs))
+		fmt.Println("Put id, Err: ", id, err)
+
 		err = client.Call("StorageServer.Put", &storagerpc.PutArgs{Key: key, Value: value}, replyArgs)
-		id = (id + 1) % len(ls.virtualIDs)
+
+		temp_id = id + 1
+		temp_id %= len(ls.virtualIDs)
+		// id = id + 1
+		// id = id % len(ls.virtualIDs)
+		fmt.Println("id after: tempid:  ", id, temp_id)
+
 	}
 	if replyArgs.Status != storagerpc.OK {
 		return errors.New("Put error")
@@ -336,7 +337,6 @@ func (ls *libstore) Put(key, value string) error {
 }
 
 func (ls *libstore) Delete(key string) error {
-
 
 	replyArgs := &storagerpc.DeleteReply{}
 	id := ls.getVirtualID(key)
@@ -358,8 +358,6 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 	ls.maplistLock.Lock()
 	defer ls.maplistLock.Unlock()
 
-	
-
 	// fmt.Println("------------------------------------------")
 	replyArgs := &storagerpc.GetListReply{}
 	requestArgs := &storagerpc.GetArgs{Key: key, WantLease: false, HostPort: ls.myPort}
@@ -374,7 +372,7 @@ func (ls *libstore) GetList(key string) ([]string, error) {
 		// fmt.Printf("Lease is still valid. Time now:%v , valid seconds: %v, leasetime :%v", timeNow, ls.listStore[key].leaseTime, ls.listStore[key].validSeconds)
 		return ls.listStore[key].value, nil
 	}
-	ls.listStore[key].value = make([]string,0)
+	ls.listStore[key].value = make([]string, 0)
 	for len(ls.listStore[key].window) > 0 &&
 		timeNow.After(ls.listStore[key].window[0].Add(time.Duration(storagerpc.QueryCacheSeconds)*time.Second)) {
 		ls.listStore[key].window = ls.listStore[key].window[1:]
@@ -452,20 +450,20 @@ func (ls *libstore) RevokeLease(args *storagerpc.RevokeLeaseArgs, reply *storage
 	reply.Status = storagerpc.KeyNotFound
 
 	if _, ok := ls.stringLocks[args.Key]; ok {
-		reply.Status=storagerpc.OK
+		reply.Status = storagerpc.OK
 		ls.mapstringLock.Lock()
 		defer ls.mapstringLock.Unlock()
 		//fmt.Println("Revoke lease", args.Key)
-		ls.stringStore[args.Key].leaseTime=time.Time{}
-		ls.stringStore[args.Key].value=""
+		ls.stringStore[args.Key].leaseTime = time.Time{}
+		ls.stringStore[args.Key].value = ""
 	}
 	if _, ok := ls.listLocks[args.Key]; ok {
-		reply.Status=storagerpc.OK
+		reply.Status = storagerpc.OK
 		ls.maplistLock.Lock()
 		defer ls.maplistLock.Unlock()
-		ls.listStore[args.Key].value = make([]string,0)
-		ls.listStore[args.Key].leaseTime=time.Time{}
+		ls.listStore[args.Key].value = make([]string, 0)
+		ls.listStore[args.Key].leaseTime = time.Time{}
 	}
-	
+
 	return nil
 }
